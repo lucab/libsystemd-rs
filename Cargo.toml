@@ -1,0 +1,27 @@
+[package]
+name = "libsystemd"
+version = "0.0.1-pre"
+authors = ["Luca Bruno <lucab@debian.org>"]
+license = "MIT/Apache-2.0"
+repository = "https://github.com/lucab/libsystemd-rs"
+documentation = "https://docs.rs/libsystemd"
+description = "A pure-Rust client library to interact with systemd"
+keywords = ["systemd", "linux"]
+exclude = [
+".gitignore",
+".travis.yml",
+]
+
+[dependencies]
+error-chain = { version = "0.10", default-features = false }
+libc = "0.2"
+nix = "0.9"
+try_or = "0.2"
+
+[package.metadata.release]
+sign-commit = true
+upload-doc = false
+disable-push = true
+pre-release-commit-message = "cargo: libsystemd release {{version}}"
+pro-release-commit-message = "cargo: version bump to {{version}}"
+tag-message = "libsystemd {{version}}"
