@@ -7,13 +7,15 @@ repository = "https://github.com/lucab/libsystemd-rs"
 documentation = "https://docs.rs/libsystemd"
 description = "A pure-Rust client library to interact with systemd"
 keywords = ["systemd", "linux"]
+categories = ["api-bindings", "os::unix-apis"]
+readme = "README.md"
 exclude = [
 ".gitignore",
 ".travis.yml",
 ]
 
 [dependencies]
-error-chain = { version = "0.10", default-features = false }
+error-chain = { version = "0.11", default-features = false }
 libc = "0.2"
 nix = "0.9"
 try_or = "0.2"
