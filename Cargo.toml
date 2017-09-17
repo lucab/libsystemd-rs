@@ -1,6 +1,6 @@
 [package]
 name = "libsystemd"
-version = "0.0.2"
+version = "0.0.3-alpha.0"
 authors = ["Luca Bruno <lucab@debian.org>"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/lucab/libsystemd-rs"
