@@ -42,9 +42,10 @@ pub fn watchdog_enabled(unset_env: bool) -> Option<time::Duration> {
         unistd::Pid::from_raw(p)
     };
 
-    match unistd::getpid() == pid {
-        true => Some(timeout),
-        false => None,
+    if unistd::getpid() == pid {
+        Some(timeout)
+    } else {
+        None
     }
 }
 
@@ -67,7 +68,7 @@ pub fn notify(unset_env: bool, state: &[NotifyState]) -> Result<bool> {
     };
     let sock = UnixDatagram::unbound()?;
 
-    let msg = state.iter().fold(String::new(), |res, &ref s| {
+    let msg = state.iter().fold(String::new(), |res, s| {
         res + &format!("{}\n", s)
     });
     let msg_len = msg.len();
@@ -81,10 +82,15 @@ pub fn notify(unset_env: bool, state: &[NotifyState]) -> Result<bool> {
 #[derive(Clone, Debug)]
 /// Status changes, see `sd_notify(3)`.
 pub enum NotifyState {
+    /// D-Bus error-style error code.
     Buserror(String),
+    /// errno-style error code.
     Errno(u8),
+    /// A name for the submitted file descriptors.
     Fdname(String),
+    /// Stores additional file descriptors in the service manager.
     Fdstore,
+    /// The main process ID of the service, in case of forking applications.
     Mainpid(unistd::Pid),
     /// Custom state change, as a `KEY=VALUE` string.
     Other(String),
@@ -98,24 +104,25 @@ pub enum NotifyState {
     Stopping,
     /// Tell the service manager to update the watchdog timestamp.
     Watchdog,
+    /// Reset watchdog timeout value during runtime.
     WatchdogUsec(u64),
 }
 
 impl fmt::Display for NotifyState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg = match self {
-            &NotifyState::Buserror(ref s) => format!("BUSERROR={}", s),
-            &NotifyState::Errno(e) => format!("ERRNO={}", e),
-            &NotifyState::Fdname(ref s) => format!("FDNAME={}", s),
-            &NotifyState::Fdstore => format!("FDSTORE=1"),
-            &NotifyState::Mainpid(ref p) => format!("MAINPID={}", p),
-            &NotifyState::Other(ref s) => s.clone(),
-            &NotifyState::Ready => format!("READY=1"),
-            &NotifyState::Reloading => format!("RELOADING=1"),
-            &NotifyState::Status(ref s) => format!("STATUS={}", s),
-            &NotifyState::Stopping => format!("STOPPING=1"),
-            &NotifyState::Watchdog => format!("WATCHDOG=1"),
-            &NotifyState::WatchdogUsec(u) => format!("WATCHDOG_USEC={}", u),
+        let msg = match *self {
+            NotifyState::Buserror(ref s) => format!("BUSERROR={}", s),
+            NotifyState::Errno(e) => format!("ERRNO={}", e),
+            NotifyState::Fdname(ref s) => format!("FDNAME={}", s),
+            NotifyState::Fdstore => "FDSTORE=1".to_string(),
+            NotifyState::Mainpid(ref p) => format!("MAINPID={}", p),
+            NotifyState::Other(ref s) => s.clone(),
+            NotifyState::Ready => "READY=1".to_string(),
+            NotifyState::Reloading => "RELOADING=1".to_string(),
+            NotifyState::Status(ref s) => format!("STATUS={}", s),
+            NotifyState::Stopping => "STOPPING=1".to_string(),
+            NotifyState::Watchdog => "WATCHDOG=1".to_string(),
+            NotifyState::WatchdogUsec(u) => format!("WATCHDOG_USEC={}", u),
         };
         write!(f, "{}", msg)
     }
