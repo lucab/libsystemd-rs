@@ -13,7 +13,7 @@ exclude = [
 ]
 
 [dependencies]
-error-chain = { version = "0.10", default-features = false }
+error-chain = { version = "0.11", default-features = false }
 libc = "0.2"
 nix = "0.9"
 try_or = "0.2"
