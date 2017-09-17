@@ -9,26 +9,26 @@ A pure-Rust client library to work with systemd.
 
 It provides support to interact with systemd components available
 on modern Linux systems. This crate is entirely implemented
-in Rust, and does not require an external libsystemd dynamic library.
+in Rust, and does not require the libsystemd C library.
 
-NB: this library is not yet features-complete. If you don't care about the C dependency, check [rust-systemd](https://github.com/jmesmon/rust-systemd).
+NB: this crate is not yet features-complete. If you don't care about C dependency, check [rust-systemd](https://github.com/jmesmon/rust-systemd) instead.
 
 ## Example
 
 ```rust
+extern crate libsystemd;
 use libsystemd::daemon::{self, NotifyState};
 
-fn notify_ready() -> bool {
+fn main() {
     if !daemon::booted() {
-        println!("Not running systemd, early exit.");
-        return false;
+        panic!("Not running systemd, early exit.");
     };
 
     let sent = daemon::notify(true, &[NotifyState::Ready]).expect("notify failed");
     if !sent {
-        println!("Notification not sent!");
+        panic!("Notification not sent, early exit.");
     };
-    sent
+    std::thread::park();
 }
 ```
 
@@ -38,8 +38,7 @@ Some more examples are available under [examples](examples).
 
 Licensed under either of
 
- * Apache License, Version 2.0, [http://www.apache.org/licenses/LICENSE-2.0]
- * MIT license, [http://opensource.org/licenses/MIT]
+ * MIT license - <http://opensource.org/licenses/MIT>
+ * Apache License, Version 2.0 - <http://www.apache.org/licenses/LICENSE-2.0>
 
 at your option.
-
