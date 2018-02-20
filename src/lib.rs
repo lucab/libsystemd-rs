@@ -28,8 +28,15 @@ extern crate nix;
 #[macro_use]
 extern crate try_or;
 
+#[cfg(test)]
+#[macro_use]
+extern crate quickcheck;
+
 /// Interfaces for systemd-aware daemons.
 pub mod daemon;
 
 /// Error handling.
 pub mod errors;
+
+/// Helpers for working with systemd units.
+pub mod unit;
