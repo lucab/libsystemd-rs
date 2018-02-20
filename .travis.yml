@@ -13,6 +13,7 @@ matrix:
 env:
   global:
     - CLIPPY_VERSION=0.0.161
+    - QUICKCHECK_TESTS=10000
 
 before_script:
   - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "nightly-2017-09-15" ]]; then
