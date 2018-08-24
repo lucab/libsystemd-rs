@@ -1,6 +1,6 @@
 [package]
 name = "libsystemd"
-version = "0.0.3-alpha.0"
+version = "0.1.0-alpha.0"
 authors = ["Luca Bruno <lucab@debian.org>"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/lucab/libsystemd-rs"
@@ -26,6 +26,7 @@ quickcheck = "0.6"
 [package.metadata.release]
 sign-commit = true
 upload-doc = false
+disable-publish = true
 disable-push = true
 pre-release-commit-message = "cargo: libsystemd release {{version}}"
 pro-release-commit-message = "cargo: version bump to {{version}}"
