@@ -21,7 +21,7 @@ nix = "0.12"
 try_or = "0.2"
 
 [dev-dependencies]
-quickcheck = "0.7"
+quickcheck = "0.8"
 
 [package.metadata.release]
 sign-commit = true
