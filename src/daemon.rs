@@ -1,7 +1,7 @@
-use std::{env, fmt, fs, path, time};
-use std::os::unix::net::UnixDatagram;
 use libc::pid_t;
 use nix::unistd;
+use std::os::unix::net::UnixDatagram;
+use std::{env, fmt, fs, path, time};
 
 use errors::*;
 
@@ -68,9 +68,9 @@ pub fn notify(unset_env: bool, state: &[NotifyState]) -> Result<bool> {
     };
     let sock = UnixDatagram::unbound()?;
 
-    let msg = state.iter().fold(String::new(), |res, s| {
-        res + &format!("{}\n", s)
-    });
+    let msg = state
+        .iter()
+        .fold(String::new(), |res, s| res + &format!("{}\n", s));
     let msg_len = msg.len();
     let sent_len = sock.send_to(msg.as_bytes(), path)?;
     if sent_len != msg_len {
