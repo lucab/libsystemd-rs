@@ -23,10 +23,13 @@
 
 #[macro_use]
 extern crate error_chain;
+extern crate hmac;
 extern crate libc;
 extern crate nix;
+extern crate sha2;
 #[macro_use]
 extern crate try_or;
+extern crate uuid;
 
 #[cfg(test)]
 #[macro_use]
@@ -40,3 +43,6 @@ pub mod errors;
 
 /// Helpers for working with systemd units.
 pub mod unit;
+
+/// APIs for processing 128-bits IDs.
+pub mod id128;
