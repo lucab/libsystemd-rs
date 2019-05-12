@@ -4,7 +4,8 @@ pub fn escape_name(name: &str) -> String {
         return "".to_string();
     }
 
-    let parts: Vec<String> = name.bytes()
+    let parts: Vec<String> = name
+        .bytes()
         .enumerate()
         .map(|(n, b)| escape_byte(b, n))
         .collect();

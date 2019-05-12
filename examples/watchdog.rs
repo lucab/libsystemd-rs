@@ -1,7 +1,7 @@
 extern crate libsystemd;
 
-use std::thread;
 use libsystemd::daemon::{self, NotifyState};
+use std::thread;
 
 /*
 ```

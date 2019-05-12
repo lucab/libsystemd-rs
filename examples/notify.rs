@@ -1,7 +1,7 @@
 extern crate libsystemd;
 
-use std::{env, thread};
 use libsystemd::daemon::{self, NotifyState};
+use std::{env, thread};
 
 /*
 cargo build --example notify
