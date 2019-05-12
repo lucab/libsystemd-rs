@@ -16,9 +16,12 @@ exclude = [
 
 [dependencies]
 error-chain = { version = "0.12", default-features = false }
+hmac = "0.7"
 libc = "0.2"
 nix = "0.13"
+sha2 = "0.8"
 try_or = "0.2"
+uuid = "0.7"
 
 [dev-dependencies]
 quickcheck = "0.7"
