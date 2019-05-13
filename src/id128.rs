@@ -10,12 +10,24 @@ pub struct Id128 {
 }
 
 impl Id128 {
+    /// Build an `Id128` from a slice of bytes.
+    pub fn try_from_slice(bytes: &[u8]) -> Result<Self> {
+        let uuid_v4 = Uuid::from_slice(bytes)
+            .map_err(|e| format!("failed to parse ID from bytes slice: {}", e))?;
+
+        // TODO(lucab): check for v4.
+        Ok(Self { uuid_v4 })
+    }
+
     /// Parse an `Id128` from string.
     pub fn parse_str<S>(input: S) -> Result<Self>
     where
         S: AsRef<str>,
     {
-        let uuid_v4 = Uuid::parse_str(input.as_ref()).map_err(|_| "failed to parse from string")?;
+        let uuid_v4 = Uuid::parse_str(input.as_ref())
+            .map_err(|e| format!("failed to parse ID from string: {}", e))?;
+
+        // TODO(lucab): check for v4.
         Ok(Self { uuid_v4 })
     }
 
@@ -36,9 +48,7 @@ impl Id128 {
         // Set variant to DCE.
         hashed[8] = (hashed[8] & 0x3F) | 0x80;
 
-        let uuid_v4 = Uuid::from_slice(&hashed[..16]).map_err(|_| "failed to parse bytes")?;
-
-        Ok(Id128 { uuid_v4 })
+        Self::try_from_slice(&hashed[..16])
     }
 }
 
@@ -79,5 +89,16 @@ mod test {
 
         let output = machine_id.app_specific(&app_id).unwrap();
         assert_eq!(output, hashed_id);
+    }
+
+    #[test]
+    fn basic_from_slice() {
+        let input = [
+            0xd8, 0x6a, 0x4e, 0x9e, 0x4d, 0xca, 0x45, 0xc5, 0xbc, 0xd9, 0x84, 0x64, 0x09, 0xbf,
+            0xa1, 0xae,
+        ];
+        let _id = Id128::try_from_slice(&input).unwrap();
+
+        Id128::try_from_slice(&[]).unwrap_err();
     }
 }
