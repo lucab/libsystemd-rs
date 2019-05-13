@@ -47,7 +47,7 @@ pub fn get_machine() -> Result<Id128> {
     let mut buf = String::new();
     let mut fd = fs::File::open("/etc/machine-id")?;
     fd.read_to_string(&mut buf)?;
-    Id128::parse_str(buf.trim_right())
+    Id128::parse_str(buf.trim_end())
 }
 
 /// Return this machine unique ID, hashed with an application-specific ID.
