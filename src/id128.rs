@@ -50,6 +50,15 @@ impl Id128 {
 
         Self::try_from_slice(&hashed[..16])
     }
+
+    /// Return this ID as a lowercase hexadecimal string, without dashes.
+    pub fn lower_hex(&self) -> String {
+        let mut hex = String::new();
+        for byte in self.uuid_v4.as_bytes() {
+            hex.push_str(&format!("{:02x}", byte));
+        }
+        hex
+    }
 }
 
 /// Return this machine unique ID.
@@ -73,16 +82,21 @@ mod test {
     #[test]
     fn basic_parse_str() {
         let input = "2e074e9b299c41a59923c51ae16f279b";
-        Id128::parse_str(input).unwrap();
+        let id = Id128::parse_str(input).unwrap();
+        assert_eq!(id.lower_hex(), input);
+
+        Id128::parse_str("").unwrap_err();
     }
 
     #[test]
     fn basic_keyed_hash() {
         let input = "2e074e9b299c41a59923c51ae16f279b";
         let machine_id = Id128::parse_str(input).unwrap();
+        assert_eq!(input, machine_id.lower_hex());
 
         let key = "033b1b9b264441fcaa173e9e5bf35c5a";
         let app_id = Id128::parse_str(key).unwrap();
+        assert_eq!(key, app_id.lower_hex());
 
         let expected = "4d4a86c9c6644a479560ded5d19a30c5";
         let hashed_id = Id128::parse_str(expected).unwrap();
@@ -93,11 +107,13 @@ mod test {
 
     #[test]
     fn basic_from_slice() {
+        let input_str = "d86a4e9e4dca45c5bcd9846409bfa1ae";
         let input = [
             0xd8, 0x6a, 0x4e, 0x9e, 0x4d, 0xca, 0x45, 0xc5, 0xbc, 0xd9, 0x84, 0x64, 0x09, 0xbf,
             0xa1, 0xae,
         ];
-        let _id = Id128::try_from_slice(&input).unwrap();
+        let id = Id128::try_from_slice(&input).unwrap();
+        assert_eq!(input_str, id.lower_hex());
 
         Id128::try_from_slice(&[]).unwrap_err();
     }
