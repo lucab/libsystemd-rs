@@ -1,11 +1,13 @@
 use errors::*;
-use std::fs;
 use std::io::Read;
+use std::{fmt, fs};
 use uuid::Uuid;
 
 /// A 128-bits ID.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Eq, PartialEq, Deserialize, Serialize)]
+#[serde(transparent)]
 pub struct Id128 {
+    #[serde(flatten, serialize_with = "Id128::ser_uuid")]
     uuid_v4: Uuid,
 }
 
@@ -58,6 +60,29 @@ impl Id128 {
             hex.push_str(&format!("{:02x}", byte));
         }
         hex
+    }
+
+    /// Return this ID as a lowercase hexadecimal string, with dashes.
+    pub fn dashed_hex(&self) -> String {
+        format!("{}", self.uuid_v4.to_hyphenated_ref())
+    }
+
+    /// Custom serialization (lower hex).
+    fn ser_uuid<S>(field: &Uuid, s: S) -> ::std::result::Result<S::Ok, S::Error>
+    where
+        S: ::serde::Serializer,
+    {
+        let mut hex = String::new();
+        for byte in field.as_bytes() {
+            hex.push_str(&format!("{:02x}", byte));
+        }
+        s.serialize_str(&hex)
+    }
+}
+
+impl fmt::Debug for Id128 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.dashed_hex())
     }
 }
 
@@ -116,5 +141,12 @@ mod test {
         assert_eq!(input_str, id.lower_hex());
 
         Id128::try_from_slice(&[]).unwrap_err();
+    }
+
+    #[test]
+    fn basic_debug() {
+        let input = "0b37f793-aeb9-4d67-99e1-6e678d86781f";
+        let id = Id128::parse_str(input).unwrap();
+        assert_eq!(id.dashed_hex(), input);
     }
 }
