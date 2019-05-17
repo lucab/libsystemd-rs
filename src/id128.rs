@@ -4,7 +4,7 @@ use std::{fmt, fs};
 use uuid::Uuid;
 
 /// A 128-bits ID.
-#[derive(Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct Id128 {
     #[serde(flatten, serialize_with = "Id128::ser_uuid")]
