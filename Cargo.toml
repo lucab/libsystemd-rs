@@ -18,7 +18,7 @@ exclude = [
 error-chain = { version = "^0.12.1", default-features = false }
 hmac = "0.7"
 libc = "0.2"
-nix = "0.14"
+nix = "0.15"
 sha2 = "0.8"
 try_or = "0.2"
 uuid = { version = "^0.7.4", features = ["serde"] }
