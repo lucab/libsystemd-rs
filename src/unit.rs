@@ -38,7 +38,7 @@ fn escape_byte(b: u8, index: usize) -> String {
     let c = char::from(b);
     match c {
         '/' => '-'.to_string(),
-        ':' | '_' | '0'...'9' | 'a'...'z' | 'A'...'Z' => c.to_string(),
+        ':' | '_' | '0'..='9' | 'a'..='z' | 'A'..='Z' => c.to_string(),
         '.' if index > 0 => c.to_string(),
         _ => format!(r#"\x{:02x}"#, b),
     }

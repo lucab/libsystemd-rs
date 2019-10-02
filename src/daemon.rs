@@ -31,15 +31,23 @@ pub fn watchdog_enabled(unset_env: bool) -> Option<time::Duration> {
     };
 
     let timeout = {
-        let usec_str = try_opt_or!(env_usec, None);
-        let usec = try_opt_or!(usec_str.parse::<u64>().ok(), None);
-        time::Duration::from_millis(usec / 1_000)
+        if let Some(usec) = env_usec.and_then(|usec_str| usec_str.parse::<u64>().ok()) {
+            time::Duration::from_millis(usec / 1_000)
+        } else {
+            return None;
+        }
     };
 
     let pid = {
-        let pid_str = try_opt_or!(env_pid, Some(timeout));
-        let p = try_opt_or!(pid_str.parse::<pid_t>().ok(), None);
-        unistd::Pid::from_raw(p)
+        if let Some(pid_str) = env_pid {
+            if let Ok(p) = pid_str.parse::<pid_t>() {
+                unistd::Pid::from_raw(p)
+            } else {
+                return None;
+            }
+        } else {
+            return Some(timeout);
+        }
     };
 
     if unistd::getpid() == pid {
@@ -63,8 +71,11 @@ pub fn notify(unset_env: bool, state: &[NotifyState]) -> Result<bool> {
     };
 
     let path = {
-        let s = try_opt_or!(env_sock, Ok(false));
-        path::PathBuf::from(s)
+        if let Some(p) = env_sock.map(path::PathBuf::from) {
+            p
+        } else {
+            return Ok(false);
+        }
     };
     let sock = UnixDatagram::unbound()?;
 

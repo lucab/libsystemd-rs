@@ -30,8 +30,6 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate sha2;
-#[macro_use]
-extern crate try_or;
 extern crate uuid;
 
 #[cfg(test)]
