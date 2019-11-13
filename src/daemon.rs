@@ -1,6 +1,13 @@
 use libc::pid_t;
+use nix::mqueue::mq_getattr;
+use nix::sys::socket::getsockname;
+use nix::sys::socket::SockAddr;
+use nix::sys::stat::fstat;
 use nix::unistd;
+use std::convert::TryFrom;
+use std::os::unix::io::RawFd;
 use std::os::unix::net::UnixDatagram;
+use std::process;
 use std::{env, fmt, fs, path, time};
 
 use errors::*;
@@ -136,5 +143,307 @@ impl fmt::Display for NotifyState {
             NotifyState::WatchdogUsec(u) => format!("WATCHDOG_USEC={}", u),
         };
         write!(f, "{}", msg)
+    }
+}
+
+const SD_LISTEN_FDS_START: RawFd = 3;
+
+pub trait IsType {
+    /// Returns true if a file descriptor is a FIFO.
+    fn is_fifo(&self) -> bool;
+
+    /// Returns true if a file descriptor is a special file.
+    fn is_special(&self) -> bool;
+
+    /// Returns true if a file descriptor is a PF_INET socket.
+    fn is_inet(&self) -> bool;
+
+    /// Returns true if a file descriptor is a PF_UNIX socket.
+    fn is_unix(&self) -> bool;
+
+    /// Returns true if a file descriptor is a POSIX message queue descriptor.
+    fn is_mq(&self) -> bool;
+}
+
+/// The possible types of sockets passed to a socket activated daemon.
+///
+/// https://www.freedesktop.org/software/systemd/man/systemd.socket.html
+#[derive(Debug, Clone)]
+pub enum SocketType {
+    /// A FIFO named pipe (see man 7 fifo)
+    Fifo(RawFd),
+    /// A special file, such as character device nodes or special files in
+    /// /proc and /sys
+    Special(RawFd),
+    /// A PF_INET socket, such as UDP/TCP sockets
+    Inet(RawFd),
+    /// A PF_UNIX socket (see man 7 unix)
+    Unix(RawFd),
+    /// A POSIX message queue (see man 7 mq_overview)
+    Mq(RawFd),
+}
+
+impl IsType for SocketType {
+    fn is_fifo(&self) -> bool {
+        match self {
+            SocketType::Fifo(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_special(&self) -> bool {
+        match self {
+            SocketType::Special(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_unix(&self) -> bool {
+        match self {
+            SocketType::Unix(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_inet(&self) -> bool {
+        match self {
+            SocketType::Inet(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_mq(&self) -> bool {
+        match self {
+            SocketType::Mq(_) => true,
+            _ => false,
+        }
+    }
+}
+
+/// Check for file descriptors passed by systemd
+///
+/// Invoked by socket activated daemons to check for file descriptors needed by the service.
+/// If unset_env is true, the environment variables used by systemd will be cleared.
+pub fn sd_listen_fds(unset_env: bool) -> Result<Vec<SocketType>> {
+    let pid = env::var("LISTEN_PID")?;
+    let fds = env::var("LISTEN_FDS")?;
+    if unset_env {
+        env::remove_var("LISTEN_PID");
+        env::remove_var("LISTEN_FDS");
+        env::remove_var("LISTEN_FDNAMES");
+    }
+
+    let pid = pid.parse::<u32>()?;
+    let fds = fds.parse::<i32>()?;
+
+    if process::id() != pid {
+        return Err("Pid mismatch".into());
+    }
+
+    let vec = socks_from_fds(fds);
+    Ok(vec)
+}
+
+/// Check for file descriptors passed by systemd
+///
+/// Like sd_listen_fds, but will also return a Vec of names associated with each file
+/// descriptor.
+pub fn sd_listen_fds_with_names(unset_env: bool) -> Result<Vec<(SocketType, String)>> {
+    let pid = env::var("LISTEN_PID")?;
+    let fds = env::var("LISTEN_FDS")?;
+    let names = env::var("LISTEN_FDNAMES")?;
+
+    if unset_env {
+        env::remove_var("LISTEN_PID");
+        env::remove_var("LISTEN_FDS");
+        env::remove_var("LISTEN_FDNAMES");
+    }
+
+    let pid = pid.parse::<u32>()?;
+    let fds = fds.parse::<i32>()?;
+
+    if process::id() != pid {
+        return Err("Pid mismatch".into());
+    }
+
+    let names: Vec<String> = names.split(":").map(String::from).collect();
+    let vec = socks_from_fds(fds);
+    let out = vec.into_iter().zip(names.into_iter()).collect();
+
+    Ok(out)
+}
+
+fn socks_from_fds(num_fds: i32) -> Vec<SocketType> {
+    let mut vec = Vec::new();
+    for fd in SD_LISTEN_FDS_START..SD_LISTEN_FDS_START+num_fds {
+        if let Ok(sock) = SocketType::try_from(fd) {
+            vec.push(sock);
+        } else {
+            eprintln!("Socket conversion error");
+        }
+    }
+
+    vec
+}
+
+impl IsType for RawFd {
+    fn is_fifo(&self) -> bool {
+        match fstat(*self) {
+            Ok(stat) => (stat.st_mode & 0170000) == 0010000,
+            Err(_) => false,
+        }
+    }
+
+    fn is_special(&self) -> bool {
+        match fstat(*self) {
+            Ok(stat) => (stat.st_mode & 0170000) == 0100000,
+            Err(_) => false,
+        }
+    }
+
+    fn is_inet(&self) -> bool {
+        match getsockname(*self) {
+            Ok(addr) => {
+                if let SockAddr::Inet(_) = addr {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+            Err(_) => return false,
+        }
+    }
+
+    fn is_unix(&self) -> bool {
+        match getsockname(*self) {
+            Ok(addr) => {
+                if let SockAddr::Unix(_) = addr {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+            Err(_) => return false,
+        }
+    }
+
+    fn is_mq(&self) -> bool {
+        mq_getattr(*self).is_ok()
+    }
+}
+
+impl TryFrom<RawFd> for SocketType {
+    type Error = &'static str;
+
+    fn try_from(value: RawFd) -> std::result::Result<Self, Self::Error> {
+        if value.is_fifo() {
+            return Ok(SocketType::Fifo(value));
+        } else if value.is_special() {
+            return Ok(SocketType::Special(value));
+        } else if value.is_inet() {
+            return Ok(SocketType::Inet(value));
+        } else if value.is_unix() {
+            return Ok(SocketType::Unix(value));
+        } else if value.is_mq() {
+            return Ok(SocketType::Mq(value));
+        }
+
+        return Err("Invalid FD");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nix::sys::wait::waitpid;
+    use nix::unistd::dup2;
+    use nix::unistd::{fork, ForkResult};
+    use std::net::TcpListener;
+    use std::os::unix::io::AsRawFd;
+    use std::os::unix::net::UnixListener;
+    use std::process::Command;
+    use std::{thread, time};
+
+    #[test]
+    fn test_unix_socket_no_names() {
+        let path = "./socket";
+        match fork() {
+            Ok(ForkResult::Parent { child, .. }) => {
+                println!(
+                    "Continuing execution in parent process, new child has pid: {}",
+                    child
+                );
+                let ten_millis = time::Duration::from_millis(10);
+                thread::sleep(ten_millis);
+                Command::new("ncat")
+                    .args(&["-U", path])
+                    .output()
+                    .expect("failed to execute process");
+                waitpid(child, None);
+            }
+            Ok(ForkResult::Child) => {
+                std::fs::remove_file(path);
+                let (stream, _) = UnixListener::bind(path)
+                    .expect("UNIXSTREAM")
+                    .accept()
+                    .unwrap();
+                let stream = stream.as_raw_fd();
+                dup2(stream, 3);
+                eprintln!("stream {}", stream);
+                let pid = process::id();
+                env::set_var("LISTEN_PID", pid.to_string());
+                env::set_var("LISTEN_FDS", "1");
+                env::set_var("LISTEN_FDNAMES", "");
+
+                let fds = sd_listen_fds(false);
+                eprintln!("{:?}", fds);
+                assert!(fds.is_ok());
+                assert!(fds.unwrap()[0].is_unix());
+            }
+            Err(_) => panic!("fork failed"),
+        }
+    }
+
+    #[test]
+    fn test_tcp_socket_no_names() {
+        match fork() {
+            Ok(ForkResult::Parent { child, .. }) => {
+                println!(
+                    "Continuing execution in parent process, new child has pid: {}",
+                    child
+                );
+                let ten_millis = time::Duration::from_millis(50);
+                thread::sleep(ten_millis);
+                let out = Command::new("ncat")
+                    .args(&["-z", "127.0.0.1", "7878"])
+                    .output()
+                    .expect("failed to execute process");
+                eprintln!(
+                    "parent ret: {} output: {}",
+                    out.status,
+                    std::str::from_utf8(&out.stdout).unwrap()
+                );
+                waitpid(child, None);
+            }
+            Ok(ForkResult::Child) => {
+                let (stream, _) = TcpListener::bind("127.0.0.1:7878")
+                    .expect("TCPLISTENER")
+                    .accept()
+                    .unwrap();
+                let stream = stream.as_raw_fd();
+                dup2(stream, 3);
+                eprintln!("stream {}", stream);
+                let pid = process::id();
+                env::set_var("LISTEN_PID", pid.to_string());
+                env::set_var("LISTEN_FDS", "1");
+                env::set_var("LISTEN_FDNAMES", "");
+
+                let fds = sd_listen_fds(false);
+                eprintln!("{:?}", fds);
+                assert!(fds.is_ok());
+                assert!(fds.unwrap()[0].is_inet());
+            }
+            Err(_) => panic!("fork failed"),
+        }
     }
 }
