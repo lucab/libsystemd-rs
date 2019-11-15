@@ -289,14 +289,14 @@ fn socks_from_fds(num_fds: i32) -> Vec<SocketType> {
 impl IsType for RawFd {
     fn is_fifo(&self) -> bool {
         match fstat(*self) {
-            Ok(stat) => (stat.st_mode & 0170000) == 0010000,
+            Ok(stat) => (stat.st_mode & 0_170_000) == 10000,
             Err(_) => false,
         }
     }
 
     fn is_special(&self) -> bool {
         match fstat(*self) {
-            Ok(stat) => (stat.st_mode & 0170000) == 0100000,
+            Ok(stat) => (stat.st_mode & 0_170_000) == 100000,
             Err(_) => false,
         }
     }
@@ -355,95 +355,34 @@ impl TryFrom<RawFd> for SocketType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nix::sys::wait::waitpid;
-    use nix::unistd::dup2;
-    use nix::unistd::{fork, ForkResult};
-    use std::net::TcpListener;
-    use std::os::unix::io::AsRawFd;
-    use std::os::unix::net::UnixListener;
-    use std::process::Command;
-    use std::{thread, time};
 
     #[test]
-    fn test_unix_socket_no_names() {
-        let path = "./socket";
-        match fork() {
-            Ok(ForkResult::Parent { child, .. }) => {
-                println!(
-                    "Continuing execution in parent process, new child has pid: {}",
-                    child
-                );
-                let ten_millis = time::Duration::from_millis(10);
-                thread::sleep(ten_millis);
-                Command::new("ncat")
-                    .args(&["-U", path])
-                    .output()
-                    .expect("failed to execute process");
-                waitpid(child, None);
-            }
-            Ok(ForkResult::Child) => {
-                std::fs::remove_file(path);
-                let (stream, _) = UnixListener::bind(path)
-                    .expect("UNIXSTREAM")
-                    .accept()
-                    .unwrap();
-                let stream = stream.as_raw_fd();
-                dup2(stream, 3);
-                eprintln!("stream {}", stream);
-                let pid = process::id();
-                env::set_var("LISTEN_PID", pid.to_string());
-                env::set_var("LISTEN_FDS", "1");
-                env::set_var("LISTEN_FDNAMES", "");
-
-                let fds = sd_listen_fds(false);
-                eprintln!("{:?}", fds);
-                assert!(fds.is_ok());
-                assert!(fds.unwrap()[0].is_unix());
-            }
-            Err(_) => panic!("fork failed"),
-        }
+    fn test_socketype_is_unix() {
+        let sock = SocketType::Unix(0i32);
+        assert!(sock.is_unix());
     }
 
     #[test]
-    fn test_tcp_socket_no_names() {
-        match fork() {
-            Ok(ForkResult::Parent { child, .. }) => {
-                println!(
-                    "Continuing execution in parent process, new child has pid: {}",
-                    child
-                );
-                let ten_millis = time::Duration::from_millis(50);
-                thread::sleep(ten_millis);
-                let out = Command::new("ncat")
-                    .args(&["-z", "127.0.0.1", "7878"])
-                    .output()
-                    .expect("failed to execute process");
-                eprintln!(
-                    "parent ret: {} output: {}",
-                    out.status,
-                    std::str::from_utf8(&out.stdout).unwrap()
-                );
-                waitpid(child, None);
-            }
-            Ok(ForkResult::Child) => {
-                let (stream, _) = TcpListener::bind("127.0.0.1:7878")
-                    .expect("TCPLISTENER")
-                    .accept()
-                    .unwrap();
-                let stream = stream.as_raw_fd();
-                dup2(stream, 3);
-                eprintln!("stream {}", stream);
-                let pid = process::id();
-                env::set_var("LISTEN_PID", pid.to_string());
-                env::set_var("LISTEN_FDS", "1");
-                env::set_var("LISTEN_FDNAMES", "");
+    fn test_socketype_is_special() {
+        let sock = SocketType::Special(0i32);
+        assert!(sock.is_special());
+    }
 
-                let fds = sd_listen_fds(false);
-                eprintln!("{:?}", fds);
-                assert!(fds.is_ok());
-                assert!(fds.unwrap()[0].is_inet());
-            }
-            Err(_) => panic!("fork failed"),
-        }
+    #[test]
+    fn test_socketype_is_inet() {
+        let sock = SocketType::Inet(0i32);
+        assert!(sock.is_inet());
+    }
+
+    #[test]
+    fn test_socketype_is_fifo() {
+        let sock = SocketType::Fifo(0i32);
+        assert!(sock.is_fifo());
+    }
+
+    #[test]
+    fn test_socketype_is_mq() {
+        let sock = SocketType::Mq(0i32);
+        assert!(sock.is_mq());
     }
 }
