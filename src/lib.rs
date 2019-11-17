@@ -36,7 +36,7 @@ extern crate uuid;
 #[macro_use]
 extern crate quickcheck;
 
-/// Interfaces for socket activated services.
+/// Interfaces for socket-activated services.
 pub mod activation;
 
 /// Interfaces for systemd-aware daemons.
