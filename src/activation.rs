@@ -3,14 +3,16 @@ use nix::sys::socket::getsockname;
 use nix::sys::socket::SockAddr;
 use nix::sys::stat::fstat;
 use std::convert::TryFrom;
-use std::os::unix::io::RawFd;
-use std::process;
 use std::env;
+use std::os::unix::io::{IntoRawFd, RawFd};
+use std::process;
 
 use errors::*;
 
+/// Minimum FD number used by systemd for passing sockets.
 const SD_LISTEN_FDS_START: RawFd = 3;
 
+/// Trait for checking the type of a file descriptor.
 pub trait IsType {
     /// Returns true if a file descriptor is a FIFO.
     fn is_fifo(&self) -> bool;
@@ -18,103 +20,107 @@ pub trait IsType {
     /// Returns true if a file descriptor is a special file.
     fn is_special(&self) -> bool;
 
-    /// Returns true if a file descriptor is a PF_INET socket.
+    /// Returns true if a file descriptor is a `PF_INET` socket.
     fn is_inet(&self) -> bool;
 
-    /// Returns true if a file descriptor is a PF_UNIX socket.
+    /// Returns true if a file descriptor is a `PF_UNIX` socket.
     fn is_unix(&self) -> bool;
 
     /// Returns true if a file descriptor is a POSIX message queue descriptor.
     fn is_mq(&self) -> bool;
 }
 
-/// The possible types of sockets passed to a socket activated daemon.
+/// File descriptor passed by systemd to socket-activated services.
 ///
-/// https://www.freedesktop.org/software/systemd/man/systemd.socket.html
+/// See https://www.freedesktop.org/software/systemd/man/systemd.socket.html.
 #[derive(Debug, Clone)]
-pub enum FileDescriptor {
-    /// A FIFO named pipe (see man 7 fifo)
+pub struct FileDescriptor(SocketFd);
+
+/// Possible types of sockets.
+#[derive(Debug, Clone)]
+enum SocketFd {
+    /// A FIFO named pipe (see `man 7 fifo`)
     Fifo(RawFd),
     /// A special file, such as character device nodes or special files in
-    /// /proc and /sys
+    /// `/proc` and `/sys`.
     Special(RawFd),
-    /// A PF_INET socket, such as UDP/TCP sockets
+    /// A `PF_INET` socket, such as UDP/TCP sockets.
     Inet(RawFd),
-    /// A PF_UNIX socket (see man 7 unix)
+    /// A `PF_UNIX` socket (see `man 7 unix`).
     Unix(RawFd),
-    /// A POSIX message queue (see man 7 mq_overview)
+    /// A POSIX message queue (see `man 7 mq_overview`).
     Mq(RawFd),
 }
 
 impl IsType for FileDescriptor {
     fn is_fifo(&self) -> bool {
-        match self {
-            FileDescriptor::Fifo(_) => true,
+        match self.0 {
+            SocketFd::Fifo(_) => true,
             _ => false,
         }
     }
 
     fn is_special(&self) -> bool {
-        match self {
-            FileDescriptor::Special(_) => true,
+        match self.0 {
+            SocketFd::Special(_) => true,
             _ => false,
         }
     }
 
     fn is_unix(&self) -> bool {
-        match self {
-            FileDescriptor::Unix(_) => true,
+        match self.0 {
+            SocketFd::Unix(_) => true,
             _ => false,
         }
     }
 
     fn is_inet(&self) -> bool {
-        match self {
-            FileDescriptor::Inet(_) => true,
+        match self.0 {
+            SocketFd::Inet(_) => true,
             _ => false,
         }
     }
 
     fn is_mq(&self) -> bool {
-        match self {
-            FileDescriptor::Mq(_) => true,
+        match self.0 {
+            SocketFd::Mq(_) => true,
             _ => false,
         }
     }
 }
 
-/// Check for file descriptors passed by systemd
+/// Check for file descriptors passed by systemd.
 ///
 /// Invoked by socket activated daemons to check for file descriptors needed by the service.
-/// If unset_env is true, the environment variables used by systemd will be cleared.
-pub fn recieve_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>> {
-    let pid = env::var("LISTEN_PID")?;
-    let fds = env::var("LISTEN_FDS")?;
+/// If `unset_env` is true, the environment variables used by systemd will be cleared.
+pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>> {
+    let pid = env::var("LISTEN_PID");
+    let fds = env::var("LISTEN_FDS");
     if unset_env {
         env::remove_var("LISTEN_PID");
         env::remove_var("LISTEN_FDS");
         env::remove_var("LISTEN_FDNAMES");
     }
 
-    let pid = pid.parse::<u32>()?;
-    let fds = fds.parse::<i32>()?;
+    let pid = pid?.parse::<u32>()?;
+    let fds = fds?.parse::<u32>()?;
 
     if process::id() != pid {
-        return Err("Pid mismatch".into());
+        return Err("PID mismatch".into());
     }
 
     let vec = socks_from_fds(fds);
     Ok(vec)
 }
 
-/// Check for file descriptors passed by systemd
+/// Check for named file descriptors passed by systemd.
 ///
-/// Like sd_listen_fds, but will also return a Vec of names associated with each file
+/// Like `sd_listen_fds`, but this will also return a vector of names associated with each file
 /// descriptor.
-pub fn recieve_descriptors_with_names(unset_env: bool) -> Result<Vec<(FileDescriptor, String)>> {
-    let pid = env::var("LISTEN_PID")?;
-    let fds = env::var("LISTEN_FDS")?;
-    let names = env::var("LISTEN_FDNAMES")?;
+pub fn receive_descriptors_with_names(unset_env: bool) -> Result<Vec<(FileDescriptor, String)>> {
+    let pid = env::var("LISTEN_PID");
+    let fds = env::var("LISTEN_FDS");
+    let names = env::var("LISTEN_FDNAMES");
 
     if unset_env {
         env::remove_var("LISTEN_PID");
@@ -122,28 +128,28 @@ pub fn recieve_descriptors_with_names(unset_env: bool) -> Result<Vec<(FileDescri
         env::remove_var("LISTEN_FDNAMES");
     }
 
-    let pid = pid.parse::<u32>()?;
-    let fds = fds.parse::<i32>()?;
+    let pid = pid?.parse::<u32>()?;
+    let fds = fds?.parse::<u32>()?;
 
     if process::id() != pid {
-        return Err("Pid mismatch".into());
+        return Err("PID mismatch".into());
     }
 
-    let names: Vec<String> = names.split(':').map(String::from).collect();
+    let names: Vec<String> = names?.split(':').map(String::from).collect();
     let vec = socks_from_fds(fds);
     let out = vec.into_iter().zip(names.into_iter()).collect();
 
     Ok(out)
 }
 
-fn socks_from_fds(num_fds: i32) -> Vec<FileDescriptor> {
+fn socks_from_fds(num_fds: u32) -> Vec<FileDescriptor> {
     let mut vec = Vec::new();
-    for fd in SD_LISTEN_FDS_START..SD_LISTEN_FDS_START+num_fds {
-        if let Ok(sock) = FileDescriptor::try_from(fd) {
-            vec.push(sock);
-        } else {
-            eprintln!("Socket conversion error");
-        }
+    for fd_offset in 0..num_fds {
+        let fd = SD_LISTEN_FDS_START + (fd_offset as i32);
+        match FileDescriptor::try_from(fd) {
+            Ok(sock) => vec.push(sock),
+            Err(e) => eprintln!("failed to receive socket: {}", e),
+        };
     }
 
     vec
@@ -172,7 +178,7 @@ impl IsType for RawFd {
                 } else {
                     false
                 }
-            },
+            }
             Err(_) => false,
         }
     }
@@ -185,7 +191,7 @@ impl IsType for RawFd {
                 } else {
                     false
                 }
-            },
+            }
             Err(_) => false,
         }
     }
@@ -196,22 +202,34 @@ impl IsType for RawFd {
 }
 
 impl TryFrom<RawFd> for FileDescriptor {
-    type Error = &'static str;
+    type Error = Error;
 
-    fn try_from(value: RawFd) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: RawFd) -> Result<Self> {
         if value.is_fifo() {
-            return Ok(FileDescriptor::Fifo(value));
+            return Ok(FileDescriptor(SocketFd::Fifo(value)));
         } else if value.is_special() {
-            return Ok(FileDescriptor::Special(value));
+            return Ok(FileDescriptor(SocketFd::Special(value)));
         } else if value.is_inet() {
-            return Ok(FileDescriptor::Inet(value));
+            return Ok(FileDescriptor(SocketFd::Inet(value)));
         } else if value.is_unix() {
-            return Ok(FileDescriptor::Unix(value));
+            return Ok(FileDescriptor(SocketFd::Unix(value)));
         } else if value.is_mq() {
-            return Ok(FileDescriptor::Mq(value));
+            return Ok(FileDescriptor(SocketFd::Mq(value)));
         }
 
-        Err("Invalid FD")
+        Err("invalid file descriptor".into())
+    }
+}
+
+impl IntoRawFd for FileDescriptor {
+    fn into_raw_fd(self) -> RawFd {
+        match self.0 {
+            SocketFd::Fifo(fd) => fd,
+            SocketFd::Special(fd) => fd,
+            SocketFd::Inet(fd) => fd,
+            SocketFd::Unix(fd) => fd,
+            SocketFd::Mq(fd) => fd,
+        }
     }
 }
 
@@ -221,31 +239,31 @@ mod tests {
 
     #[test]
     fn test_socketype_is_unix() {
-        let sock = FileDescriptor::Unix(0i32);
+        let sock = FileDescriptor(SocketFd::Unix(0i32));
         assert!(sock.is_unix());
     }
 
     #[test]
     fn test_socketype_is_special() {
-        let sock = FileDescriptor::Special(0i32);
+        let sock = FileDescriptor(SocketFd::Special(0i32));
         assert!(sock.is_special());
     }
 
     #[test]
     fn test_socketype_is_inet() {
-        let sock = FileDescriptor::Inet(0i32);
+        let sock = FileDescriptor(SocketFd::Inet(0i32));
         assert!(sock.is_inet());
     }
 
     #[test]
     fn test_socketype_is_fifo() {
-        let sock = FileDescriptor::Fifo(0i32);
+        let sock = FileDescriptor(SocketFd::Fifo(0i32));
         assert!(sock.is_fifo());
     }
 
     #[test]
     fn test_socketype_is_mq() {
-        let sock = FileDescriptor::Mq(0i32);
+        let sock = FileDescriptor(SocketFd::Mq(0i32));
         assert!(sock.is_mq());
     }
 }
