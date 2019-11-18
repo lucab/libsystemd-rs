@@ -7,7 +7,7 @@ use std::env;
 use std::os::unix::io::{IntoRawFd, RawFd};
 use std::process;
 
-use errors::*;
+use crate::errors::*;
 
 /// Minimum FD number used by systemd for passing sockets.
 const SD_LISTEN_FDS_START: RawFd = 3;

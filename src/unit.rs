@@ -46,7 +46,8 @@ fn escape_byte(b: u8, index: usize) -> String {
 
 #[cfg(test)]
 mod test {
-    use unit::*;
+    use crate::unit::*;
+    use quickcheck::quickcheck;
 
     quickcheck! {
         fn test_byte_escape_length(xs: u8, n: usize) -> bool {
@@ -128,5 +129,4 @@ mod test {
             !out.starts_with('.')
         }
     }
-
 }

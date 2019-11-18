@@ -1,9 +1,10 @@
+use error_chain::bail;
 use libc::pid_t;
 use nix::unistd;
 use std::os::unix::net::UnixDatagram;
 use std::{env, fmt, fs, path, time};
 
-use errors::*;
+use crate::errors::*;
 
 /// Check for systemd presence at runtime.
 ///
