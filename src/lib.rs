@@ -21,21 +21,6 @@
 //! }
 //! ```
 
-#[macro_use]
-extern crate error_chain;
-extern crate hmac;
-extern crate libc;
-extern crate nix;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate sha2;
-extern crate uuid;
-
-#[cfg(test)]
-#[macro_use]
-extern crate quickcheck;
-
 /// Interfaces for socket-activated services.
 pub mod activation;
 

@@ -13,16 +13,16 @@ exclude = [
 ".gitignore",
 ".travis.yml",
 ]
+edition = "2018"
 
 [dependencies]
 error-chain = { version = "^0.12.1", default-features = false }
 hmac = "0.7"
 libc = "0.2"
 nix = "0.15"
+serde = { version = "^1.0.91", features = ["derive"] }
 sha2 = "0.8"
 uuid = { version = "^0.8.1", features = ["serde"] }
-serde = "^1.0.91"
-serde_derive = "^1.0.91"
 
 [dev-dependencies]
 quickcheck = "0.8"
@@ -33,5 +33,5 @@ upload-doc = false
 disable-publish = true
 disable-push = true
 pre-release-commit-message = "cargo: libsystemd release {{version}}"
-pro-release-commit-message = "cargo: version bump to {{version}}"
+pro-release-commit-message = "cargo: development version bump"
 tag-message = "libsystemd {{version}}"
