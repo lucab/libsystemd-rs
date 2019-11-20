@@ -25,7 +25,7 @@ sha2 = "0.8"
 uuid = { version = "^0.8.1", features = ["serde"] }
 
 [dev-dependencies]
-quickcheck = "0.8"
+quickcheck = "0.9"
 
 [package.metadata.release]
 sign-commit = true
