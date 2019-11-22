@@ -30,7 +30,7 @@ pub mod daemon;
 /// Error handling.
 pub mod errors;
 
-/// Interfaces for systemd-journald logging.
+/// Helpers for logging to systemd-journald.
 pub mod logging;
 
 /// Helpers for working with systemd units.

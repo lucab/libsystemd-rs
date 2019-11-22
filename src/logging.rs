@@ -1,18 +1,18 @@
+use nix::fcntl::*;
+use nix::sys::memfd::memfd_create;
+use nix::sys::memfd::MemFdCreateFlag;
+use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, SockAddr};
+use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::io::FromRawFd;
-use std::ffi::CString;
-use std::os::unix::net::UnixDatagram;
 use std::os::unix::io::{AsRawFd, IntoRawFd};
-use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg, SockAddr};
-use nix::sys::memfd::MemFdCreateFlag;
-use nix::sys::memfd::memfd_create;
-use nix::fcntl::*;
+use std::os::unix::net::UnixDatagram;
 
 use crate::errors::*;
 
-/// Default path of the journald AF_UNIX datagram socket.
-const SD_JOURNAL_SOCK_PATH: &str = "/run/systemd/journal/socket";
+/// Default path of the systemd-journald `AF_UNIX` datagram socket.
+pub static SD_JOURNAL_SOCK_PATH: &str = "/run/systemd/journal/socket";
 
 /// Log priority values.
 ///
@@ -20,21 +20,21 @@ const SD_JOURNAL_SOCK_PATH: &str = "/run/systemd/journal/socket";
 #[derive(Debug)]
 #[repr(u8)]
 pub enum Priority {
-    /// system is unusable
+    /// System is unusable.
     Emergency = 0,
-    /// action must be taken immediately
+    /// Action must be taken immediately.
     Alert,
-    /// critical conditions
+    /// Critical condition,
     Critical,
-    /// error conditions
+    /// Error condition.
     Error,
-    /// warning conditions
+    /// Warning condition.
     Warning,
-    /// normal, but significant, condition
+    /// Normal, but significant, condition.
     Notice,
-    /// informational message
+    /// Informational message.
     Info,
-    /// debug-level message
+    /// Debug message.
     Debug,
 }
 
@@ -58,7 +58,7 @@ fn is_valid_char(c: char) -> bool {
     c.is_uppercase() || c.is_numeric() || c == '_'
 }
 
-/// The variable name must be in uppercase and consist only of characters, 
+/// The variable name must be in uppercase and consist only of characters,
 /// numbers and underscores, and may not begin with an underscore.
 fn is_valid_field(input: &str) -> bool {
     if input.is_empty() {
@@ -83,7 +83,9 @@ fn add_field_and_payload(data: &mut String, field: &str, payload: &str) {
     }
 }
 
-/// Print a message to the systemd journal with the given priority.
+/// Print a message to the journal with the given priority.
+///
+/// This uses the default systemd-journald socket.
 pub fn journal_print(priority: Priority, msg: &str) -> Result<()> {
     let sock = UnixDatagram::unbound()?;
 
@@ -91,27 +93,54 @@ pub fn journal_print(priority: Priority, msg: &str) -> Result<()> {
     add_field_and_payload(&mut data, "PRIORITY", &(u8::from(priority)).to_string());
     add_field_and_payload(&mut data, "MESSAGE", msg);
 
-    let res = sock.send_to(data.as_bytes(), SD_JOURNAL_SOCK_PATH);
-    match res {
-        Ok(_) => return Ok(()),
-        // If error code is 90, the message was too long for a UNIX socket.
-        Err(ref e) if e.raw_os_error() == Some(90) => {
-            let tmpfd = memfd_create(&CString::new("journald")?, MemFdCreateFlag::MFD_ALLOW_SEALING)?;
-            // Safe because memfd_create gave us this FD.
-            let mut file = unsafe { File::from_raw_fd(tmpfd) };
-            file.write_all(data.as_bytes())?;
-
-            let memfd = file.into_raw_fd();
-            fcntl(memfd, FcntlArg::F_ADD_SEALS(SealFlag::all()))?;
-            let fds = &[memfd];
-            let ancillary = [ControlMessage::ScmRights(fds)];
-            let path = SockAddr::new_unix(SD_JOURNAL_SOCK_PATH)?;
-            sendmsg(sock.as_raw_fd(), &[], &ancillary, MsgFlags::empty(), Some(&path))?;
-        },
-        _ => return Err("unknown err".into()),
+    // Message sending logic:
+    //  * fast path: data within datagram body.
+    //  * slow path: data in a sealed memfd, which is sent as an FD in ancillary data.
+    //
+    // Maximum data size is system dependent, thus this always tries the fast path and
+    // falls back to the slow path if the former fails with `EMSGSIZE`.
+    let fast_res = sock.send_to(data.as_bytes(), SD_JOURNAL_SOCK_PATH);
+    let res = match fast_res {
+        // `EMSGSIZE` (errno code 90) means the message was too long for a UNIX socket,
+        Err(ref err) if err.raw_os_error() == Some(90) => send_memfd_payload(sock, data.as_bytes()),
+        r => r.map_err(|err| err.into()),
     };
 
+    res.chain_err(|| format!("failed to print to journal at '{}'", SD_JOURNAL_SOCK_PATH))?;
     Ok(())
+}
+
+/// Send an overlarge payload to systemd-journald socket.
+///
+/// This is a slow-path for sending a large payload that could not otherwise fit
+/// in a UNIX datagram. Payload is thus written to a memfd, which is sent as ancillary
+/// data.
+fn send_memfd_payload(sock: UnixDatagram, data: &[u8]) -> Result<usize> {
+    let memfd = {
+        let tmpfd = memfd_create(
+            &CString::new("libsystemd-rs-logging")?,
+            MemFdCreateFlag::MFD_ALLOW_SEALING,
+        )?;
+        // SAFETY: `memfd_create` just returned this FD.
+        let mut file = unsafe { File::from_raw_fd(tmpfd) };
+        file.write_all(data)?;
+        file.into_raw_fd()
+    };
+    // Seal the memfd, so that journald knows it can safely mmap/read it.
+    fcntl(memfd, FcntlArg::F_ADD_SEALS(SealFlag::all()))?;
+
+    let fds = &[memfd];
+    let ancillary = [ControlMessage::ScmRights(fds)];
+    let path = SockAddr::new_unix(SD_JOURNAL_SOCK_PATH)?;
+    sendmsg(
+        sock.as_raw_fd(),
+        &[],
+        &ancillary,
+        MsgFlags::empty(),
+        Some(&path),
+    )?;
+
+    Ok(data.len())
 }
 
 #[cfg(test)]
@@ -120,15 +149,13 @@ mod tests {
 
     #[test]
     fn test_journal_print_simple() {
-        let res = journal_print(Priority::Info, "TEST LOG!");
-        assert!(res.is_ok());
+        journal_print(Priority::Info, "TEST LOG!").unwrap();
     }
 
     #[test]
     fn test_journal_print_large_buffer() {
         let data = "A".repeat(212995);
-        let res = journal_print(Priority::Debug, &data);
-        assert!(res.is_ok());
+        journal_print(Priority::Debug, &data).unwrap();
     }
 
     #[test]
