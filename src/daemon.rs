@@ -91,7 +91,7 @@ pub fn notify(unset_env: bool, state: &[NotifyState]) -> Result<bool> {
     Ok(true)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 /// Status changes, see `sd_notify(3)`.
 pub enum NotifyState {
     /// D-Bus error-style error code.
@@ -122,20 +122,19 @@ pub enum NotifyState {
 
 impl fmt::Display for NotifyState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg = match *self {
-            NotifyState::Buserror(ref s) => format!("BUSERROR={}", s),
-            NotifyState::Errno(e) => format!("ERRNO={}", e),
-            NotifyState::Fdname(ref s) => format!("FDNAME={}", s),
-            NotifyState::Fdstore => "FDSTORE=1".to_string(),
-            NotifyState::Mainpid(ref p) => format!("MAINPID={}", p),
-            NotifyState::Other(ref s) => s.clone(),
-            NotifyState::Ready => "READY=1".to_string(),
-            NotifyState::Reloading => "RELOADING=1".to_string(),
-            NotifyState::Status(ref s) => format!("STATUS={}", s),
-            NotifyState::Stopping => "STOPPING=1".to_string(),
-            NotifyState::Watchdog => "WATCHDOG=1".to_string(),
-            NotifyState::WatchdogUsec(u) => format!("WATCHDOG_USEC={}", u),
-        };
-        write!(f, "{}", msg)
+        match *self {
+            NotifyState::Buserror(ref s) => write!(f, "BUSERROR={}", s),
+            NotifyState::Errno(e) => write!(f, "ERRNO={}", e),
+            NotifyState::Fdname(ref s) => write!(f, "FDNAME={}", s),
+            NotifyState::Fdstore => write!(f, "FDSTORE=1"),
+            NotifyState::Mainpid(ref p) => write!(f, "MAINPID={}", p),
+            NotifyState::Other(ref s) => write!(f, "{}", s),
+            NotifyState::Ready => write!(f, "READY=1"),
+            NotifyState::Reloading => write!(f, "RELOADING=1"),
+            NotifyState::Status(ref s) => write!(f, "STATUS={}", s),
+            NotifyState::Stopping => write!(f, "STOPPING=1"),
+            NotifyState::Watchdog => write!(f, "WATCHDOG=1"),
+            NotifyState::WatchdogUsec(u) => write!(f, "WATCHDOG_USEC={}", u),
+        }
     }
 }
