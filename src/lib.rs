@@ -27,6 +27,9 @@ pub mod activation;
 /// Interfaces for systemd-aware daemons.
 pub mod daemon;
 
+/// Interfaces for reading from the system journal.
+pub mod journal;
+
 /// Error handling.
 pub mod errors;
 

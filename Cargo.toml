@@ -20,6 +20,7 @@ error-chain = { version = "^0.12.1", default-features = false }
 hmac = "0.7"
 libc = "0.2"
 nix = "0.15"
+sdjournal = { git = "https://github.com/jabedude/sdjournal-rs" }
 serde = { version = "^1.0.91", features = ["derive"] }
 sha2 = "0.8"
 uuid = { version = "^0.8.1", features = ["serde"] }
