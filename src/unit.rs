@@ -66,8 +66,10 @@ mod test {
             // escape disallowed
             (r#"///..\-!#??///"#, r#"---..\x5c\x2d\x21\x23\x3f\x3f---"#),
             // escape real-world example
-            (r#"user-cloudinit@/var/lib/coreos/vagrant/vagrantfile-user-data.service"#,
-             r#"user\x2dcloudinit\x40-var-lib-coreos-vagrant-vagrantfile\x2duser\x2ddata.service"#),
+            (
+                r#"user-cloudinit@/var/lib/coreos/vagrant/vagrantfile-user-data.service"#,
+                r#"user\x2dcloudinit\x40-var-lib-coreos-vagrant-vagrantfile\x2duser\x2ddata.service"#,
+            ),
         ];
 
         for t in cases {
