@@ -1,8 +1,8 @@
 language: rust
 
 rust:
-  - 1.34.0  # minimum supported toolchain
-  - 1.38.0  # pinned toolchain for clippy
+  - 1.39.0  # minimum supported toolchain
+  - 1.42.0  # pinned toolchain for clippy
   - stable
   - beta
   - nightly
@@ -13,7 +13,7 @@ matrix:
 
 env:
   global:
-    - CLIPPY_RUST_VERSION=1.38.0
+    - CLIPPY_RUST_VERSION=1.42.0
 
 before_script:
   - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "$CLIPPY_RUST_VERSION" ]]; then
