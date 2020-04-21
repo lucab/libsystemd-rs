@@ -2,6 +2,7 @@ use nix::fcntl::*;
 use nix::sys::memfd::memfd_create;
 use nix::sys::memfd::MemFdCreateFlag;
 use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, SockAddr};
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
@@ -82,16 +83,28 @@ fn add_field_and_payload(data: &mut String, field: &str, payload: &str) {
         data.push_str(&field_payload);
     }
 }
-
-/// Print a message to the journal with the given priority.
+/// Send a message with structured properties to the journal.
 ///
-/// This uses the default systemd-journald socket.
-pub fn journal_print(priority: Priority, msg: &str) -> Result<()> {
+/// The PRIORITY or MESSAGE fields from the vars iterator are always ignored in favour of the priority and message arguments.
+pub fn journal_send<K, V>(
+    priority: Priority,
+    msg: &str,
+    vars: impl Iterator<Item = (K, V)>,
+) -> Result<()>
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
     let sock = UnixDatagram::unbound()?;
 
     let mut data = String::new();
     add_field_and_payload(&mut data, "PRIORITY", &(u8::from(priority)).to_string());
     add_field_and_payload(&mut data, "MESSAGE", msg);
+    for (ref k, ref v) in vars {
+        if k.as_ref() != "PRIORITY" && k.as_ref() != "MESSAGE" {
+            add_field_and_payload(&mut data, k.as_ref(), v.as_ref())
+        }
+    }
 
     // Message sending logic:
     //  * fast path: data within datagram body.
@@ -108,6 +121,11 @@ pub fn journal_print(priority: Priority, msg: &str) -> Result<()> {
 
     res.chain_err(|| format!("failed to print to journal at '{}'", SD_JOURNAL_SOCK_PATH))?;
     Ok(())
+}
+/// Print a message to the journal with the given priority.
+pub fn journal_print(priority: Priority, msg: &str) -> Result<()> {
+    let map: HashMap<&str, &str> = HashMap::new();
+    journal_send(priority, msg, map.iter())
 }
 
 /// Send an overlarge payload to systemd-journald socket.
@@ -156,6 +174,23 @@ mod tests {
     fn test_journal_print_large_buffer() {
         let data = "A".repeat(212995);
         journal_print(Priority::Debug, &data).unwrap();
+    }
+
+    #[test]
+    fn test_journal_send_simple() {
+        let mut map: HashMap<&str, &str> = HashMap::new();
+        map.insert("TEST_JOURNALD_LOG1", "foo");
+        map.insert("TEST_JOURNALD_LOG2", "bar");
+        journal_send(Priority::Info, "Test Journald Log", map.iter()).unwrap()
+    }
+    #[test]
+    fn test_journal_skip_fields() {
+        let mut map: HashMap<&str, &str> = HashMap::new();
+        let priority = format!("{}", u8::from(Priority::Warning));
+        map.insert("TEST_JOURNALD_LOG3", "result");
+        map.insert("PRIORITY", &priority);
+        map.insert("MESSAGE", "Duplicate value");
+        journal_send(Priority::Info, "Test Skip Fields", map.iter()).unwrap()
     }
 
     #[test]
