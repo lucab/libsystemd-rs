@@ -165,19 +165,44 @@ fn send_memfd_payload(sock: UnixDatagram, data: &[u8]) -> Result<usize> {
 mod tests {
     use super::*;
 
+    fn ensure_journald_socket() -> bool {
+        match std::fs::metadata(SD_JOURNAL_SOCK_PATH) {
+            Ok(_) => true,
+            Err(_) => {
+                eprintln!(
+                    "skipped, journald socket not found at '{}'",
+                    SD_JOURNAL_SOCK_PATH
+                );
+                false
+            }
+        }
+    }
+
     #[test]
     fn test_journal_print_simple() {
+        if !ensure_journald_socket() {
+            return;
+        }
+
         journal_print(Priority::Info, "TEST LOG!").unwrap();
     }
 
     #[test]
     fn test_journal_print_large_buffer() {
+        if !ensure_journald_socket() {
+            return;
+        }
+
         let data = "A".repeat(212995);
         journal_print(Priority::Debug, &data).unwrap();
     }
 
     #[test]
     fn test_journal_send_simple() {
+        if !ensure_journald_socket() {
+            return;
+        }
+
         let mut map: HashMap<&str, &str> = HashMap::new();
         map.insert("TEST_JOURNALD_LOG1", "foo");
         map.insert("TEST_JOURNALD_LOG2", "bar");
@@ -185,6 +210,10 @@ mod tests {
     }
     #[test]
     fn test_journal_skip_fields() {
+        if !ensure_journald_socket() {
+            return;
+        }
+
         let mut map: HashMap<&str, &str> = HashMap::new();
         let priority = format!("{}", u8::from(Priority::Warning));
         map.insert("TEST_JOURNALD_LOG3", "result");
