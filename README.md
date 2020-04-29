@@ -1,6 +1,6 @@
 # libsystemd
 
-[![Build Status](https://travis-ci.org/lucab/libsystemd-rs.svg?branch=master)](https://travis-ci.org/lucab/libsystemd-rs)
+[![Build Status](https://travis-ci.com/lucab/libsystemd-rs.svg?branch=master)](https://travis-ci.com/lucab/libsystemd-rs)
 [![crates.io](https://img.shields.io/crates/v/libsystemd.svg)](https://crates.io/crates/libsystemd)
 [![LoC](https://tokei.rs/b1/github/lucab/libsystemd-rs?category=code)](https://github.com/lucab/libsystemd-rs)
 [![Documentation](https://docs.rs/libsystemd/badge.svg)](https://docs.rs/libsystemd)
