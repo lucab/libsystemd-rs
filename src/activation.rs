@@ -103,14 +103,13 @@ pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>> {
     }
 
     let pid = pid?.parse::<u32>()?;
-    let fds = fds?.parse::<u32>()?;
+    let fds = fds?.parse::<usize>()?;
 
     if process::id() != pid {
         return Err("PID mismatch".into());
     }
 
-    let vec = socks_from_fds(fds);
-    Ok(vec)
+    socks_from_fds(fds)
 }
 
 /// Check for named file descriptors passed by systemd.
@@ -129,30 +128,32 @@ pub fn receive_descriptors_with_names(unset_env: bool) -> Result<Vec<(FileDescri
     }
 
     let pid = pid?.parse::<u32>()?;
-    let fds = fds?.parse::<u32>()?;
+    let fds = fds?.parse::<usize>()?;
 
     if process::id() != pid {
         return Err("PID mismatch".into());
     }
 
     let names: Vec<String> = names?.split(':').map(String::from).collect();
-    let vec = socks_from_fds(fds);
+    let vec = socks_from_fds(fds)?;
     let out = vec.into_iter().zip(names.into_iter()).collect();
 
     Ok(out)
 }
 
-fn socks_from_fds(num_fds: u32) -> Vec<FileDescriptor> {
-    let mut vec = Vec::new();
+fn socks_from_fds(num_fds: usize) -> Result<Vec<FileDescriptor>> {
+    use error_chain::bail;
+
+    let mut descriptors = Vec::with_capacity(num_fds);
     for fd_offset in 0..num_fds {
         let fd = SD_LISTEN_FDS_START + (fd_offset as i32);
         match FileDescriptor::try_from(fd) {
-            Ok(sock) => vec.push(sock),
-            Err(e) => eprintln!("failed to receive socket: {}", e),
+            Ok(sock) => descriptors.push(sock),
+            Err(e) => bail!("failed to receive file descriptor {}: {}", fd_offset, e),
         };
     }
 
-    vec
+    Ok(descriptors)
 }
 
 impl IsType for RawFd {
