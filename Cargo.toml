@@ -16,7 +16,6 @@ exclude = [
 edition = "2018"
 
 [dependencies]
-error-chain = { version = "^0.12.1", default-features = false }
 hmac = "^0.7"
 libc = "^0.2"
 nix = "^0.17"
