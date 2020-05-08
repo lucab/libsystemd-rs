@@ -1,11 +1,18 @@
-#![allow(deprecated)]
+use thiserror::Error;
 
-error_chain::error_chain! {
-    foreign_links {
-        Io(::std::io::Error);
-        Env(::std::env::VarError);
-        Ffi(::std::ffi::NulError);
-        Nix(nix::Error);
-        Parse(::std::num::ParseIntError);
+/// Library errors.
+#[derive(Error, Debug)]
+#[error("libsystemd error: {0}")]
+pub struct SdError(pub(crate) String);
+
+impl From<&str> for SdError {
+    fn from(arg: &str) -> Self {
+        Self(arg.to_string())
+    }
+}
+
+impl From<String> for SdError {
+    fn from(arg: String) -> Self {
+        Self(arg)
     }
 }
