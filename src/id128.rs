@@ -1,5 +1,4 @@
-use crate::errors::*;
-use error_chain::ensure;
+use crate::errors::SdError;
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::{fmt, fs};
@@ -15,7 +14,7 @@ pub struct Id128 {
 
 impl Id128 {
     /// Build an `Id128` from a slice of bytes.
-    pub fn try_from_slice(bytes: &[u8]) -> Result<Self> {
+    pub fn try_from_slice(bytes: &[u8]) -> Result<Self, SdError> {
         let uuid_v4 = Uuid::from_slice(bytes)
             .map_err(|e| format!("failed to parse ID from bytes slice: {}", e))?;
 
@@ -24,7 +23,7 @@ impl Id128 {
     }
 
     /// Parse an `Id128` from string.
-    pub fn parse_str<S>(input: S) -> Result<Self>
+    pub fn parse_str<S>(input: S) -> Result<Self, SdError>
     where
         S: AsRef<str>,
     {
@@ -36,7 +35,7 @@ impl Id128 {
     }
 
     /// Hash this ID with an application-specific ID.
-    pub fn app_specific(&self, app: &Self) -> Result<Self> {
+    pub fn app_specific(&self, app: &Self) -> Result<Self, SdError> {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
 
@@ -45,7 +44,9 @@ impl Id128 {
         mac.input(app.uuid_v4.as_bytes());
         let mut hashed = mac.result().code();
 
-        ensure!(hashed.len() == 32, "short hash");
+        if hashed.len() != 32 {
+            return Err("short hash".into());
+        };
 
         // Set version to 4.
         hashed[6] = (hashed[6] & 0x0F) | 0x40;
@@ -89,15 +90,17 @@ impl fmt::Debug for Id128 {
 }
 
 /// Return this machine unique ID.
-pub fn get_machine() -> Result<Id128> {
+pub fn get_machine() -> Result<Id128, SdError> {
     let mut buf = String::new();
-    let mut fd = fs::File::open("/etc/machine-id")?;
-    fd.read_to_string(&mut buf)?;
+    let mut fd = fs::File::open("/etc/machine-id")
+        .map_err(|e| format!("failed to open machine-id: {}", e))?;
+    fd.read_to_string(&mut buf)
+        .map_err(|e| format!("failed to read machine-id: {}", e))?;
     Id128::parse_str(buf.trim_end())
 }
 
 /// Return this machine unique ID, hashed with an application-specific ID.
-pub fn get_machine_app_specific(app_id: &Id128) -> Result<Id128> {
+pub fn get_machine_app_specific(app_id: &Id128) -> Result<Id128, SdError> {
     let machine_id = get_machine()?;
     machine_id.app_specific(app_id)
 }

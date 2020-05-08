@@ -1,3 +1,4 @@
+use crate::errors::SdError;
 use nix::fcntl::*;
 use nix::sys::memfd::memfd_create;
 use nix::sys::memfd::MemFdCreateFlag;
@@ -10,10 +11,10 @@ use std::os::unix::io::FromRawFd;
 use std::os::unix::io::{AsRawFd, IntoRawFd};
 use std::os::unix::net::UnixDatagram;
 
-use crate::errors::*;
-
 /// Default path of the systemd-journald `AF_UNIX` datagram socket.
 pub static SD_JOURNAL_SOCK_PATH: &str = "/run/systemd/journal/socket";
+
+/// Trait for checking the type of a file descriptor.
 
 /// Log priority values.
 ///
@@ -90,12 +91,13 @@ pub fn journal_send<K, V>(
     priority: Priority,
     msg: &str,
     vars: impl Iterator<Item = (K, V)>,
-) -> Result<()>
+) -> Result<(), SdError>
 where
     K: AsRef<str>,
     V: AsRef<str>,
 {
-    let sock = UnixDatagram::unbound()?;
+    let sock =
+        UnixDatagram::unbound().map_err(|e| format!("failed to open datagram socket: {}", e))?;
 
     let mut data = String::new();
     add_field_and_payload(&mut data, "PRIORITY", &(u8::from(priority)).to_string());
@@ -116,14 +118,19 @@ where
     let res = match fast_res {
         // `EMSGSIZE` (errno code 90) means the message was too long for a UNIX socket,
         Err(ref err) if err.raw_os_error() == Some(90) => send_memfd_payload(sock, data.as_bytes()),
-        r => r.map_err(|err| err.into()),
+        r => r.map_err(|err| err.to_string().into()),
     };
 
-    res.chain_err(|| format!("failed to print to journal at '{}'", SD_JOURNAL_SOCK_PATH))?;
+    res.map_err(|e| {
+        format!(
+            "failed to print to journal at '{}': {}",
+            SD_JOURNAL_SOCK_PATH, e
+        )
+    })?;
     Ok(())
 }
 /// Print a message to the journal with the given priority.
-pub fn journal_print(priority: Priority, msg: &str) -> Result<()> {
+pub fn journal_print(priority: Priority, msg: &str) -> Result<(), SdError> {
     let map: HashMap<&str, &str> = HashMap::new();
     journal_send(priority, msg, map.iter())
 }
@@ -133,30 +140,32 @@ pub fn journal_print(priority: Priority, msg: &str) -> Result<()> {
 /// This is a slow-path for sending a large payload that could not otherwise fit
 /// in a UNIX datagram. Payload is thus written to a memfd, which is sent as ancillary
 /// data.
-fn send_memfd_payload(sock: UnixDatagram, data: &[u8]) -> Result<usize> {
+fn send_memfd_payload(sock: UnixDatagram, data: &[u8]) -> Result<usize, SdError> {
     let memfd = {
-        let tmpfd = memfd_create(
-            &CString::new("libsystemd-rs-logging")?,
-            MemFdCreateFlag::MFD_ALLOW_SEALING,
-        )?;
+        let fdname = &CString::new("libsystemd-rs-logging").map_err(|e| e.to_string())?;
+        let tmpfd =
+            memfd_create(fdname, MemFdCreateFlag::MFD_ALLOW_SEALING).map_err(|e| e.to_string())?;
+
         // SAFETY: `memfd_create` just returned this FD.
         let mut file = unsafe { File::from_raw_fd(tmpfd) };
-        file.write_all(data)?;
+        file.write_all(data).map_err(|e| e.to_string())?;
         file.into_raw_fd()
     };
+
     // Seal the memfd, so that journald knows it can safely mmap/read it.
-    fcntl(memfd, FcntlArg::F_ADD_SEALS(SealFlag::all()))?;
+    fcntl(memfd, FcntlArg::F_ADD_SEALS(SealFlag::all())).map_err(|e| e.to_string())?;
 
     let fds = &[memfd];
     let ancillary = [ControlMessage::ScmRights(fds)];
-    let path = SockAddr::new_unix(SD_JOURNAL_SOCK_PATH)?;
+    let path = SockAddr::new_unix(SD_JOURNAL_SOCK_PATH).map_err(|e| e.to_string())?;
     sendmsg(
         sock.as_raw_fd(),
         &[],
         &ancillary,
         MsgFlags::empty(),
         Some(&path),
-    )?;
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(data.len())
 }

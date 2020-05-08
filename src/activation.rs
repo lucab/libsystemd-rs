@@ -1,3 +1,4 @@
+use crate::errors::SdError;
 use nix::mqueue::mq_getattr;
 use nix::sys::socket::getsockname;
 use nix::sys::socket::SockAddr;
@@ -6,8 +7,6 @@ use std::convert::TryFrom;
 use std::env;
 use std::os::unix::io::{IntoRawFd, RawFd};
 use std::process;
-
-use crate::errors::*;
 
 /// Minimum FD number used by systemd for passing sockets.
 const SD_LISTEN_FDS_START: RawFd = 3;
@@ -93,7 +92,7 @@ impl IsType for FileDescriptor {
 ///
 /// Invoked by socket activated daemons to check for file descriptors needed by the service.
 /// If `unset_env` is true, the environment variables used by systemd will be cleared.
-pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>> {
+pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>, SdError> {
     let pid = env::var("LISTEN_PID");
     let fds = env::var("LISTEN_FDS");
     if unset_env {
@@ -102,8 +101,14 @@ pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>> {
         env::remove_var("LISTEN_FDNAMES");
     }
 
-    let pid = pid?.parse::<u32>()?;
-    let fds = fds?.parse::<usize>()?;
+    let pid = pid
+        .map_err(|e| format!("failed to get LISTEN_PID: {}", e))?
+        .parse::<u32>()
+        .map_err(|e| format!("failed to parse LISTEN_PID: {}", e))?;
+    let fds = fds
+        .map_err(|e| format!("failed to get LISTEN_FDS: {}", e))?
+        .parse::<usize>()
+        .map_err(|e| format!("failed to parse LISTEN_FDS: {}", e))?;
 
     if process::id() != pid {
         return Err("PID mismatch".into());
@@ -116,7 +121,9 @@ pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>> {
 ///
 /// Like `sd_listen_fds`, but this will also return a vector of names associated with each file
 /// descriptor.
-pub fn receive_descriptors_with_names(unset_env: bool) -> Result<Vec<(FileDescriptor, String)>> {
+pub fn receive_descriptors_with_names(
+    unset_env: bool,
+) -> Result<Vec<(FileDescriptor, String)>, SdError> {
     let pid = env::var("LISTEN_PID");
     let fds = env::var("LISTEN_FDS");
     let names = env::var("LISTEN_FDNAMES");
@@ -127,30 +134,37 @@ pub fn receive_descriptors_with_names(unset_env: bool) -> Result<Vec<(FileDescri
         env::remove_var("LISTEN_FDNAMES");
     }
 
-    let pid = pid?.parse::<u32>()?;
-    let fds = fds?.parse::<usize>()?;
+    let pid = pid
+        .map_err(|e| format!("failed to get LISTEN_PID: {}", e))?
+        .parse::<u32>()
+        .map_err(|e| format!("failed to parse LISTEN_PID: {}", e))?;
+    let fds = fds
+        .map_err(|e| format!("failed to get LISTEN_FDS: {}", e))?
+        .parse::<usize>()
+        .map_err(|e| format!("failed to parse LISTEN_FDS: {}", e))?;
 
     if process::id() != pid {
         return Err("PID mismatch".into());
     }
 
-    let names: Vec<String> = names?.split(':').map(String::from).collect();
+    let names: Vec<String> = names
+        .map_err(|e| format!("failed to get LISTEN_FDNAMES: {}", e))?
+        .split(':')
+        .map(String::from)
+        .collect();
     let vec = socks_from_fds(fds)?;
     let out = vec.into_iter().zip(names.into_iter()).collect();
 
     Ok(out)
 }
 
-fn socks_from_fds(num_fds: usize) -> Result<Vec<FileDescriptor>> {
-    use error_chain::bail;
-
+fn socks_from_fds(num_fds: usize) -> Result<Vec<FileDescriptor>, SdError> {
     let mut descriptors = Vec::with_capacity(num_fds);
     for fd_offset in 0..num_fds {
         let fd = SD_LISTEN_FDS_START + (fd_offset as i32);
-        match FileDescriptor::try_from(fd) {
-            Ok(sock) => descriptors.push(sock),
-            Err(e) => bail!("failed to receive file descriptor {}: {}", fd_offset, e),
-        };
+        let sock = FileDescriptor::try_from(fd)
+            .map_err(|e| format!("failed to receive file descriptor {}: {}", fd_offset, e))?;
+        descriptors.push(sock);
     }
 
     Ok(descriptors)
@@ -203,9 +217,9 @@ impl IsType for RawFd {
 }
 
 impl TryFrom<RawFd> for FileDescriptor {
-    type Error = Error;
+    type Error = SdError;
 
-    fn try_from(value: RawFd) -> Result<Self> {
+    fn try_from(value: RawFd) -> Result<Self, SdError> {
         if value.is_fifo() {
             return Ok(FileDescriptor(SocketFd::Fifo(value)));
         } else if value.is_special() {

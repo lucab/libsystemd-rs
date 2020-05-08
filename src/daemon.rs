@@ -1,10 +1,8 @@
-use error_chain::bail;
+use crate::errors::SdError;
 use libc::pid_t;
 use nix::unistd;
 use std::os::unix::net::UnixDatagram;
 use std::{env, fmt, fs, path, time};
-
-use crate::errors::*;
 
 /// Check for systemd presence at runtime.
 ///
@@ -64,7 +62,7 @@ pub fn watchdog_enabled(unset_env: bool) -> Option<time::Duration> {
 /// The returned boolean show whether notifications are supported for
 /// this service. If `unset_env` is true, environment will be cleared
 /// and no further notifications are possible.
-pub fn notify(unset_env: bool, state: &[NotifyState]) -> Result<bool> {
+pub fn notify(unset_env: bool, state: &[NotifyState]) -> Result<bool, SdError> {
     let env_sock = env::var("NOTIFY_SOCKET").ok();
 
     if unset_env {
@@ -78,15 +76,18 @@ pub fn notify(unset_env: bool, state: &[NotifyState]) -> Result<bool> {
             return Ok(false);
         }
     };
-    let sock = UnixDatagram::unbound()?;
+    let sock =
+        UnixDatagram::unbound().map_err(|e| format!("failed to open datagram socket: {}", e))?;
 
     let msg = state
         .iter()
         .fold(String::new(), |res, s| res + &format!("{}\n", s));
     let msg_len = msg.len();
-    let sent_len = sock.send_to(msg.as_bytes(), path)?;
+    let sent_len = sock
+        .send_to(msg.as_bytes(), path)
+        .map_err(|e| format!("failed to send datagram: {}", e))?;
     if sent_len != msg_len {
-        bail!("incomplete write, sent {} out of {}", sent_len, msg_len);
+        return Err(format!("incomplete write, sent {} out of {}", sent_len, msg_len).into());
     }
     Ok(true)
 }
