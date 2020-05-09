@@ -49,6 +49,8 @@ enum SocketFd {
     Unix(RawFd),
     /// A POSIX message queue (see `man 7 mq_overview`).
     Mq(RawFd),
+    /// An unknown descriptor (possibly invalid, use with caution).
+    Unknown(RawFd),
 }
 
 impl IsType for FileDescriptor {
@@ -161,10 +163,14 @@ pub fn receive_descriptors_with_names(
 fn socks_from_fds(num_fds: usize) -> Result<Vec<FileDescriptor>, SdError> {
     let mut descriptors = Vec::with_capacity(num_fds);
     for fd_offset in 0..num_fds {
-        let fd = SD_LISTEN_FDS_START + (fd_offset as i32);
-        let sock = FileDescriptor::try_from(fd)
-            .map_err(|e| format!("failed to receive file descriptor {}: {}", fd_offset, e))?;
-        descriptors.push(sock);
+        let index = SD_LISTEN_FDS_START
+            .checked_add(fd_offset as i32)
+            .ok_or_else(|| "overlarge file descriptor index")?;
+        let fd = FileDescriptor::try_from(index).unwrap_or_else(|(msg, val)| {
+            log::warn!("{}", msg);
+            FileDescriptor(SocketFd::Unknown(val))
+        });
+        descriptors.push(fd);
     }
 
     Ok(descriptors)
@@ -217,9 +223,9 @@ impl IsType for RawFd {
 }
 
 impl TryFrom<RawFd> for FileDescriptor {
-    type Error = SdError;
+    type Error = (SdError, RawFd);
 
-    fn try_from(value: RawFd) -> Result<Self, SdError> {
+    fn try_from(value: RawFd) -> Result<Self, Self::Error> {
         if value.is_fifo() {
             return Ok(FileDescriptor(SocketFd::Fifo(value)));
         } else if value.is_special() {
@@ -232,7 +238,11 @@ impl TryFrom<RawFd> for FileDescriptor {
             return Ok(FileDescriptor(SocketFd::Mq(value)));
         }
 
-        Err("invalid file descriptor".into())
+        let err_msg = format!(
+            "conversion failure, possibly invalid or unknown file descriptor {}",
+            value
+        );
+        Err((err_msg.into(), value))
     }
 }
 
@@ -244,6 +254,13 @@ impl IntoRawFd for FileDescriptor {
             SocketFd::Inet(fd) => fd,
             SocketFd::Unix(fd) => fd,
             SocketFd::Mq(fd) => fd,
+            SocketFd::Unknown(fd) => {
+                log::warn!(
+                    "extracting possibly invalid or unknown file descriptor {}",
+                    fd
+                );
+                fd
+            }
         }
     }
 }
