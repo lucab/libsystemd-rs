@@ -97,6 +97,8 @@ impl IsType for FileDescriptor {
 pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>, SdError> {
     let pid = env::var("LISTEN_PID");
     let fds = env::var("LISTEN_FDS");
+    log::trace!("LISTEN_PID = {:?}; LISTEN_FDS = {:?}", pid, fds);
+
     if unset_env {
         env::remove_var("LISTEN_PID");
         env::remove_var("LISTEN_FDS");
@@ -121,14 +123,20 @@ pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>, SdErr
 
 /// Check for named file descriptors passed by systemd.
 ///
-/// Like `sd_listen_fds`, but this will also return a vector of names associated with each file
-/// descriptor.
+/// Like `receive_descriptors`, but this will also return a vector of names
+/// associated with each file descriptor.
 pub fn receive_descriptors_with_names(
     unset_env: bool,
 ) -> Result<Vec<(FileDescriptor, String)>, SdError> {
     let pid = env::var("LISTEN_PID");
     let fds = env::var("LISTEN_FDS");
     let names = env::var("LISTEN_FDNAMES");
+    log::trace!(
+        "LISTEN_PID = {:?}; LISTEN_FDS = {:?}; LISTEN_FDNAMES = {:?}",
+        pid,
+        fds,
+        names
+    );
 
     if unset_env {
         env::remove_var("LISTEN_PID");
@@ -246,6 +254,7 @@ impl TryFrom<RawFd> for FileDescriptor {
     }
 }
 
+// TODO(lucab): replace with multiple safe `TryInto` helpers plus an `unsafe` fallback.
 impl IntoRawFd for FileDescriptor {
     fn into_raw_fd(self) -> RawFd {
         match self.0 {
@@ -254,13 +263,7 @@ impl IntoRawFd for FileDescriptor {
             SocketFd::Inet(fd) => fd,
             SocketFd::Unix(fd) => fd,
             SocketFd::Mq(fd) => fd,
-            SocketFd::Unknown(fd) => {
-                log::warn!(
-                    "extracting possibly invalid or unknown file descriptor {}",
-                    fd
-                );
-                fd
-            }
+            SocketFd::Unknown(fd) => fd,
         }
     }
 }
