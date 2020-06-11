@@ -36,13 +36,13 @@ impl Id128 {
 
     /// Hash this ID with an application-specific ID.
     pub fn app_specific(&self, app: &Self) -> Result<Self, SdError> {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, Mac, NewMac};
         use sha2::Sha256;
 
         let mut mac = Hmac::<Sha256>::new_varkey(self.uuid_v4.as_bytes())
             .map_err(|_| "failed to prepare HMAC")?;
-        mac.input(app.uuid_v4.as_bytes());
-        let mut hashed = mac.result().code();
+        mac.update(app.uuid_v4.as_bytes());
+        let mut hashed = mac.finalize().into_bytes();
 
         if hashed.len() != 32 {
             return Err("short hash".into());
