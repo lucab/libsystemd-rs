@@ -16,7 +16,7 @@ exclude = [
 edition = "2018"
 
 [dependencies]
-hmac = "^0.8"
+hmac = "^0.9"
 libc = "^0.2"
 log = "^0.4"
 nix = "^0.18"
