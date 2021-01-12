@@ -1,7 +1,8 @@
 use crate::errors::SdError;
 use nix::mqueue::mq_getattr;
-use nix::sys::socket::getsockname;
+use nix::sys::socket::sockopt::SockType;
 use nix::sys::socket::SockAddr;
+use nix::sys::socket::{self, getsockname, getsockopt};
 use nix::sys::stat::fstat;
 use std::convert::TryFrom;
 use std::env;
@@ -25,6 +26,12 @@ pub trait IsType {
     /// Returns true if a file descriptor is a `PF_UNIX` socket.
     fn is_unix(&self) -> bool;
 
+    /// Returns true if an INET/6 or UNIX file descriptor is a `SOCK_STREAM` socket.
+    fn is_stream(&self) -> bool;
+
+    /// Returns true if an INET/6 or UNIX file descriptor is a `SOCK_DGRAM` socket.
+    fn is_dgram(&self) -> bool;
+
     /// Returns true if a file descriptor is a POSIX message queue descriptor.
     fn is_mq(&self) -> bool;
 }
@@ -45,8 +52,10 @@ enum SocketFd {
     Special(RawFd),
     /// A `PF_INET` socket, such as UDP/TCP sockets.
     Inet(RawFd),
-    /// A `PF_UNIX` socket (see `man 7 unix`).
-    Unix(RawFd),
+    /// A `PF_UNIX` stream socket (see `man 7 unix`).
+    UnixStream(RawFd),
+    /// A `PF_UNIX` datagram socket (see `man 7 unix`).
+    UnixDgram(RawFd),
     /// A POSIX message queue (see `man 7 mq_overview`).
     Mq(RawFd),
     /// An unknown descriptor (possibly invalid, use with caution).
@@ -70,7 +79,22 @@ impl IsType for FileDescriptor {
 
     fn is_unix(&self) -> bool {
         match self.0 {
-            SocketFd::Unix(_) => true,
+            SocketFd::UnixStream(_) => true,
+            SocketFd::UnixDgram(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_stream(&self) -> bool {
+        match self.0 {
+            SocketFd::UnixStream(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_dgram(&self) -> bool {
+        match self.0 {
+            SocketFd::UnixDgram(_) => true,
             _ => false,
         }
     }
@@ -225,6 +249,19 @@ impl IsType for RawFd {
         }
     }
 
+    fn is_stream(&self) -> bool {
+        if let Ok(sock_type) = getsockopt(*self, SockType) {
+            sock_type == socket::SockType::Stream
+        } else {
+            false
+        }
+    }
+
+    fn is_dgram(&self) -> bool {
+        let sock_type = getsockopt(*self, SockType).expect("Getsockopt");
+        sock_type == socket::SockType::Datagram
+    }
+
     fn is_mq(&self) -> bool {
         mq_getattr(*self).is_ok()
     }
@@ -240,8 +277,10 @@ impl TryFrom<RawFd> for FileDescriptor {
             return Ok(FileDescriptor(SocketFd::Special(value)));
         } else if value.is_inet() {
             return Ok(FileDescriptor(SocketFd::Inet(value)));
-        } else if value.is_unix() {
-            return Ok(FileDescriptor(SocketFd::Unix(value)));
+        } else if value.is_unix() && value.is_stream() {
+            return Ok(FileDescriptor(SocketFd::UnixStream(value)));
+        } else if value.is_unix() && value.is_dgram() {
+            return Ok(FileDescriptor(SocketFd::UnixDgram(value)));
         } else if value.is_mq() {
             return Ok(FileDescriptor(SocketFd::Mq(value)));
         }
@@ -261,7 +300,8 @@ impl IntoRawFd for FileDescriptor {
             SocketFd::Fifo(fd) => fd,
             SocketFd::Special(fd) => fd,
             SocketFd::Inet(fd) => fd,
-            SocketFd::Unix(fd) => fd,
+            SocketFd::UnixStream(fd) => fd,
+            SocketFd::UnixDgram(fd) => fd,
             SocketFd::Mq(fd) => fd,
             SocketFd::Unknown(fd) => fd,
         }
@@ -274,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_socketype_is_unix() {
-        let sock = FileDescriptor(SocketFd::Unix(0i32));
+        let sock = FileDescriptor(SocketFd::UnixStream(0i32));
         assert!(sock.is_unix());
     }
 
