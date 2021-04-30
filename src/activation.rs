@@ -55,38 +55,23 @@ enum SocketFd {
 
 impl IsType for FileDescriptor {
     fn is_fifo(&self) -> bool {
-        match self.0 {
-            SocketFd::Fifo(_) => true,
-            _ => false,
-        }
+        matches!(self.0, SocketFd::Fifo(_))
     }
 
     fn is_special(&self) -> bool {
-        match self.0 {
-            SocketFd::Special(_) => true,
-            _ => false,
-        }
+        matches!(self.0, SocketFd::Special(_))
     }
 
     fn is_unix(&self) -> bool {
-        match self.0 {
-            SocketFd::Unix(_) => true,
-            _ => false,
-        }
+        matches!(self.0, SocketFd::Unix(_))
     }
 
     fn is_inet(&self) -> bool {
-        match self.0 {
-            SocketFd::Inet(_) => true,
-            _ => false,
-        }
+        matches!(self.0, SocketFd::Inet(_))
     }
 
     fn is_mq(&self) -> bool {
-        match self.0 {
-            SocketFd::Mq(_) => true,
-            _ => false,
-        }
+        matches!(self.0, SocketFd::Mq(_))
     }
 }
 
@@ -173,7 +158,7 @@ fn socks_from_fds(num_fds: usize) -> Result<Vec<FileDescriptor>, SdError> {
     for fd_offset in 0..num_fds {
         let index = SD_LISTEN_FDS_START
             .checked_add(fd_offset as i32)
-            .ok_or_else(|| "overlarge file descriptor index")?;
+            .ok_or_else(|| format!("overlarge file descriptor index: {}", num_fds))?;
         let fd = FileDescriptor::try_from(index).unwrap_or_else(|(msg, val)| {
             log::warn!("{}", msg);
             FileDescriptor(SocketFd::Unknown(val))
@@ -186,43 +171,27 @@ fn socks_from_fds(num_fds: usize) -> Result<Vec<FileDescriptor>, SdError> {
 
 impl IsType for RawFd {
     fn is_fifo(&self) -> bool {
-        match fstat(*self) {
-            Ok(stat) => (stat.st_mode & 0o0_170_000) == 0o010_000,
-            Err(_) => false,
-        }
+        fstat(*self)
+            .map(|stat| (stat.st_mode & 0o0_170_000) == 0o010_000)
+            .unwrap_or(false)
     }
 
     fn is_special(&self) -> bool {
-        match fstat(*self) {
-            Ok(stat) => (stat.st_mode & 0o0_170_000) == 0o100_000,
-            Err(_) => false,
-        }
+        fstat(*self)
+            .map(|stat| (stat.st_mode & 0o0_170_000) == 0o100_000)
+            .unwrap_or(false)
     }
 
     fn is_inet(&self) -> bool {
-        match getsockname(*self) {
-            Ok(addr) => {
-                if let SockAddr::Inet(_) = addr {
-                    true
-                } else {
-                    false
-                }
-            }
-            Err(_) => false,
-        }
+        getsockname(*self)
+            .map(|addr| matches!(addr, SockAddr::Inet(_)))
+            .unwrap_or(false)
     }
 
     fn is_unix(&self) -> bool {
-        match getsockname(*self) {
-            Ok(addr) => {
-                if let SockAddr::Unix(_) = addr {
-                    true
-                } else {
-                    false
-                }
-            }
-            Err(_) => false,
-        }
+        getsockname(*self)
+            .map(|addr| matches!(addr, SockAddr::Unix(_)))
+            .unwrap_or(false)
     }
 
     fn is_mq(&self) -> bool {
