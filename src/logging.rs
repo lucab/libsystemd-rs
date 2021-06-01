@@ -78,12 +78,15 @@ fn is_valid_field(input: &str) -> bool {
     true
 }
 
-fn add_field_and_payload(data: &mut String, field: &str, payload: &str) {
+fn add_field_and_payload(data: &mut Vec<u8>, field: &str, payload: &str) {
     if is_valid_field(field) {
-        let field_payload = format!("{}={}\n", field, payload);
-        data.push_str(&field_payload);
+        data.extend(field.as_bytes());
+        data.push(b'=');
+        data.extend(payload.as_bytes());
+        data.push(b'\n');
     }
 }
+
 /// Send a message with structured properties to the journal.
 ///
 /// The PRIORITY or MESSAGE fields from the vars iterator are always ignored in favour of the priority and message arguments.
@@ -99,7 +102,7 @@ where
     let sock =
         UnixDatagram::unbound().map_err(|e| format!("failed to open datagram socket: {}", e))?;
 
-    let mut data = String::new();
+    let mut data = Vec::new();
     add_field_and_payload(&mut data, "PRIORITY", &(u8::from(priority)).to_string());
     add_field_and_payload(&mut data, "MESSAGE", msg);
     for (ref k, ref v) in vars {
@@ -114,10 +117,10 @@ where
     //
     // Maximum data size is system dependent, thus this always tries the fast path and
     // falls back to the slow path if the former fails with `EMSGSIZE`.
-    let fast_res = sock.send_to(data.as_bytes(), SD_JOURNAL_SOCK_PATH);
+    let fast_res = sock.send_to(&data, SD_JOURNAL_SOCK_PATH);
     let res = match fast_res {
         // `EMSGSIZE` (errno code 90) means the message was too long for a UNIX socket,
-        Err(ref err) if err.raw_os_error() == Some(90) => send_memfd_payload(sock, data.as_bytes()),
+        Err(ref err) if err.raw_os_error() == Some(90) => send_memfd_payload(sock, &data),
         r => r.map_err(|err| err.to_string().into()),
     };
 
