@@ -27,6 +27,8 @@ uuid = { version = "^0.8.1", features = ["serde"] }
 
 [dev-dependencies]
 quickcheck = "^1.0"
+serde_json = "^1.0"
+rand = "^0.8"
 
 [package.metadata.release]
 sign-commit = true
