@@ -78,12 +78,46 @@ fn is_valid_field(input: &str) -> bool {
     true
 }
 
+/// Add `field` and `payload` to journal fields `data` with explicit length encoding.
+///
+/// Write
+///
+/// 1. the field name,
+/// 2. an ASCII newline,
+/// 3. the payload size as LE encoded 64 bit integer,
+/// 4. the payload, and
+/// 5. a final ASCII newline
+///
+/// to `data`.
+///
+/// See <https://systemd.io/JOURNAL_NATIVE_PROTOCOL/> for details.
+fn add_field_and_payload_explicit_length(data: &mut Vec<u8>, field: &str, payload: &str) {
+    data.extend(field.as_bytes());
+    data.push(b'\n');
+    data.extend(&(payload.len() as u64).to_le_bytes());
+    data.extend(payload.as_bytes());
+    data.push(b'\n');
+}
+
+/// Add  a journal `field` and its `payload` to journal fields `data` with appropriate encoding.
+///
+/// If `payload` does not contain a newline character use the simple journal field encoding, and
+/// write the field name and the payload separated by `=` and suffixed by a final new line.
+///
+/// Otherwise encode the payload length explicitly with [[`add_field_and_payload_explicit_length`]].
+///
+/// See <https://systemd.io/JOURNAL_NATIVE_PROTOCOL/> for details.
 fn add_field_and_payload(data: &mut Vec<u8>, field: &str, payload: &str) {
     if is_valid_field(field) {
-        data.extend(field.as_bytes());
-        data.push(b'=');
-        data.extend(payload.as_bytes());
-        data.push(b'\n');
+        if payload.contains('\n') {
+            add_field_and_payload_explicit_length(data, field, payload);
+        } else {
+            // If payload doesn't contain an newline directly write the field name and the payload
+            data.extend(field.as_bytes());
+            data.push(b'=');
+            data.extend(payload.as_bytes());
+            data.push(b'\n');
+        }
     }
 }
 
@@ -256,5 +290,62 @@ mod tests {
     fn test_is_valid_field_uppercase_leading_underscore_invalid() {
         let field = "_TEST";
         assert_eq!(is_valid_field(&field), false);
+    }
+
+    #[test]
+    fn add_field_and_payload_explicit_length_simple() {
+        let mut data = Vec::new();
+        add_field_and_payload_explicit_length(&mut data, "FOO", "BAR");
+        assert_eq!(
+            data,
+            vec![b'F', b'O', b'O', b'\n', 3, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n']
+        );
+    }
+
+    #[test]
+    fn add_field_and_payload_explicit_length_internal_newline() {
+        let mut data = Vec::new();
+        add_field_and_payload_explicit_length(&mut data, "FOO", "B\nAR");
+        assert_eq!(
+            data,
+            vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'\n', b'A', b'R', b'\n']
+        );
+    }
+
+    #[test]
+    fn add_field_and_payload_explicit_length_trailing_newline() {
+        let mut data = Vec::new();
+        add_field_and_payload_explicit_length(&mut data, "FOO", "BAR\n");
+        assert_eq!(
+            data,
+            vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n', b'\n']
+        );
+    }
+
+    #[test]
+    fn add_field_and_payload_simple() {
+        let mut data = Vec::new();
+        add_field_and_payload(&mut data, "FOO", "BAR");
+        assert_eq!(data, "FOO=BAR\n".as_bytes());
+    }
+
+    #[test]
+    fn add_field_and_payload_internal_newline() {
+        let mut data = Vec::new();
+        add_field_and_payload(&mut data, "FOO", "B\nAR");
+        assert_eq!(
+            data,
+            vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'\n', b'A', b'R', b'\n']
+        );
+    }
+
+    #[test]
+    fn add_field_and_payload_trailing_newline() {
+        let mut data = Vec::new();
+        add_field_and_payload(&mut data, "FOO", "BAR\n");
+        assert_eq!(
+            data,
+            vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n', b'\n']
+        );
     }
 }

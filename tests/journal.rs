@@ -52,3 +52,39 @@ fn simple_message() {
     assert_eq!(message["PRIORITY"], "6");
     assert_eq!(message["FOO"], "another piece of data");
 }
+
+#[test]
+fn multiline_message() {
+    libsystemd::logging::journal_send(
+        Priority::Info,
+        "Hello\nMultiline\nWorld",
+        vec![("TEST_NAME", "multiline_message")].into_iter(),
+    )
+    .unwrap();
+
+    let messages = read_from_journal(&["TEST_NAME=multiline_message"]);
+    assert_eq!(messages.len(), 1);
+
+    let message = &messages[0];
+    assert_eq!(message["MESSAGE"], "Hello\nMultiline\nWorld");
+    assert_eq!(message["TEST_NAME"], "multiline_message");
+    assert_eq!(message["PRIORITY"], "6");
+}
+
+#[test]
+fn multiline_message_trailing_newline() {
+    libsystemd::logging::journal_send(
+        Priority::Info,
+        "A trailing newline\n",
+        vec![("TEST_NAME", "multiline_message_trailing_newline")].into_iter(),
+    )
+    .unwrap();
+
+    let messages = read_from_journal(&["TEST_NAME=multiline_message_trailing_newline"]);
+    assert_eq!(messages.len(), 1);
+
+    let message = &messages[0];
+    assert_eq!(message["MESSAGE"], "A trailing newline\n");
+    assert_eq!(message["TEST_NAME"], "multiline_message_trailing_newline");
+    assert_eq!(message["PRIORITY"], "6");
+}
