@@ -19,7 +19,7 @@ edition = "2018"
 hmac = "^0.10"
 libc = "^0.2"
 log = "^0.4"
-nix = "^0.20"
+nix = "^0.21"
 serde = { version = "^1.0.91", features = ["derive"] }
 sha2 = "^0.9"
 thiserror = "^1.0"
