@@ -39,7 +39,7 @@ impl Id128 {
         use hmac::{Hmac, Mac, NewMac};
         use sha2::Sha256;
 
-        let mut mac = Hmac::<Sha256>::new_varkey(self.uuid_v4.as_bytes())
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.uuid_v4.as_bytes())
             .map_err(|_| "failed to prepare HMAC")?;
         mac.update(app.uuid_v4.as_bytes());
         let mut hashed = mac.finalize().into_bytes();
