@@ -1,0 +1,54 @@
+use std::process::Command;
+
+use libsystemd::logging::Priority;
+use std::collections::HashMap;
+use std::ffi::OsStr;
+
+/// Read from journal.
+///
+/// `matches` are additional matches to filter journal entries.
+fn read_from_journal<I, S>(matches: I) -> Vec<HashMap<String, String>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let stdout = String::from_utf8(
+        Command::new("journalctl")
+            .args(&["--user", "--output=json"])
+            // Filter by the PID of the current test process
+            .arg(format!("_PID={}", std::process::id()))
+            .args(matches)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+
+    stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[test]
+fn simple_message() {
+    libsystemd::logging::journal_send(
+        Priority::Info,
+        "Hello World",
+        vec![
+            ("TEST_NAME", "simple_message"),
+            ("FOO", "another piece of data"),
+        ]
+        .into_iter(),
+    )
+    .unwrap();
+
+    let messages = read_from_journal(&["TEST_NAME=simple_message"]);
+    assert_eq!(messages.len(), 1);
+
+    let message = &messages[0];
+    assert_eq!(message["MESSAGE"], "Hello World");
+    assert_eq!(message["TEST_NAME"], "simple_message");
+    assert_eq!(message["PRIORITY"], "6");
+    assert_eq!(message["FOO"], "another piece of data");
+}
