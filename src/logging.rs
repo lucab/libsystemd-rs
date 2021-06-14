@@ -57,25 +57,31 @@ impl std::convert::From<Priority> for u8 {
 
 #[inline(always)]
 fn is_valid_char(c: char) -> bool {
-    c.is_uppercase() || c.is_numeric() || c == '_'
+    c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'
 }
 
 /// The variable name must be in uppercase and consist only of characters,
 /// numbers and underscores, and may not begin with an underscore.
+///
+/// See <https://github.com/systemd/systemd/blob/ed056c560b47f84a0aa0289151f4ec91f786d24a/src/libsystemd/sd-journal/journal-file.c#L1557>
+/// for the reference implementation of journal_field_valid.
 fn is_valid_field(input: &str) -> bool {
-    if input.is_empty() {
+    // journald doesn't allow empty fields or fields with more than 64 bytes
+    if input.is_empty() || 64 < input.len() {
         return false;
     }
 
-    if !input.chars().all(is_valid_char) {
-        return false;
-    }
-
+    // Fields starting with underscores are protected by journald
     if input.starts_with('_') {
         return false;
     }
 
-    true
+    // Journald doesn't allow fields to start with digits
+    if input.starts_with(|c: char| c.is_ascii_digit()) {
+        return false;
+    }
+
+    input.chars().all(is_valid_char)
 }
 
 /// Add `field` and `payload` to journal fields `data` with explicit length encoding.
@@ -275,6 +281,12 @@ mod tests {
     }
 
     #[test]
+    fn test_is_valid_field_uppercase_non_ascii_invalid() {
+        let field = "TRÖT";
+        assert_eq!(is_valid_field(&field), false);
+    }
+
+    #[test]
     fn test_is_valid_field_uppercase_valid() {
         let field = "TEST";
         assert_eq!(is_valid_field(&field), true);
@@ -290,6 +302,11 @@ mod tests {
     fn test_is_valid_field_uppercase_leading_underscore_invalid() {
         let field = "_TEST";
         assert_eq!(is_valid_field(&field), false);
+    }
+
+    #[test]
+    fn test_is_valid_field_uppercase_leading_digit_invalid() {
+        assert_eq!(is_valid_field("1TEST"), false);
     }
 
     #[test]
