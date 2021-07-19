@@ -19,7 +19,7 @@ pub static SD_JOURNAL_SOCK_PATH: &str = "/run/systemd/journal/socket";
 /// Log priority values.
 ///
 /// See `man 3 syslog`.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum Priority {
     /// System is unusable.
