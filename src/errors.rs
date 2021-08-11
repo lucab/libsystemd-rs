@@ -1,9 +1,16 @@
-use thiserror::Error;
+use std::{error::Error, fmt};
 
 /// Library errors.
-#[derive(Error, Debug)]
-#[error("libsystemd error: {0}")]
+#[derive(Debug)]
 pub struct SdError(pub(crate) String);
+
+impl fmt::Display for SdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "libsystemd error: {}", self.0)
+    }
+}
+
+impl Error for SdError {}
 
 impl From<&str> for SdError {
     fn from(arg: &str) -> Self {

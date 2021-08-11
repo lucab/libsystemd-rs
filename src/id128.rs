@@ -1,37 +1,27 @@
 use crate::errors::SdError;
-use serde::{Deserialize, Serialize};
-use std::io::Read;
-use std::{fmt, fs};
+use std::{convert::TryFrom, ffi::OsStr, fs, os::unix::ffi::OsStrExt, str::FromStr};
 use uuid::Uuid;
 
 /// A 128-bits ID.
-#[derive(Clone, Eq, PartialEq, Deserialize, Serialize)]
-#[serde(transparent)]
-pub struct Id128 {
-    #[serde(flatten, serialize_with = "Id128::ser_uuid")]
-    uuid_v4: Uuid,
-}
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct Id128(Uuid);
 
 impl Id128 {
-    /// Build an `Id128` from a slice of bytes.
-    pub fn try_from_slice(bytes: &[u8]) -> Result<Self, SdError> {
-        let uuid_v4 = Uuid::from_slice(bytes)
-            .map_err(|e| format!("failed to parse ID from bytes slice: {}", e))?;
-
-        // TODO(lucab): check for v4.
-        Ok(Self { uuid_v4 })
+    pub const fn as_bytes(&self) -> &[u8; 16] {
+        self.0.as_bytes()
     }
 
-    /// Parse an `Id128` from string.
+    #[deprecated(since = "0.3.2", note = "use TryFrom")]
+    pub fn try_from_slice(bytes: &[u8]) -> Result<Self, SdError> {
+        Id128::try_from(bytes)
+    }
+
+    #[deprecated(since = "0.3.2", note = "use parse")]
     pub fn parse_str<S>(input: S) -> Result<Self, SdError>
     where
         S: AsRef<str>,
     {
-        let uuid_v4 = Uuid::parse_str(input.as_ref())
-            .map_err(|e| format!("failed to parse ID from string: {}", e))?;
-
-        // TODO(lucab): check for v4.
-        Ok(Self { uuid_v4 })
+        Id128::from_str(input.as_ref())
     }
 
     /// Hash this ID with an application-specific ID.
@@ -39,9 +29,9 @@ impl Id128 {
         use hmac::{Hmac, Mac, NewMac};
         use sha2::Sha256;
 
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.uuid_v4.as_bytes())
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.as_bytes())
             .map_err(|_| "failed to prepare HMAC")?;
-        mac.update(app.uuid_v4.as_bytes());
+        mac.update(app.as_bytes());
         let mut hashed = mac.finalize().into_bytes();
 
         if hashed.len() != 32 {
@@ -53,83 +43,129 @@ impl Id128 {
         // Set variant to DCE.
         hashed[8] = (hashed[8] & 0x3F) | 0x80;
 
-        Self::try_from_slice(&hashed[..16])
+        Self::try_from(&hashed[..16])
+    }
+
+    pub fn from_boot() -> Result<Self, SdError> {
+        let buf = fs::read_to_string("/proc/sys/kernel/random/boot_id")
+            .map_err(|e| format!("failed to open boot_id: {}", e))?;
+        Id128::from_str(buf.trim_end())
+    }
+
+    /// Return this machine unique ID.
+    pub fn from_machine() -> Result<Self, SdError> {
+        let buf = fs::read_to_string("/etc/machine-id")
+            .map_err(|e| format!("failed to open machine-id: {}", e))?;
+        Id128::from_str(buf.trim_end())
     }
 
     /// Return this ID as a lowercase hexadecimal string, without dashes.
     pub fn lower_hex(&self) -> String {
-        let mut hex = String::new();
-        for byte in self.uuid_v4.as_bytes() {
-            hex.push_str(&format!("{:02x}", byte));
-        }
-        hex
+        self.0.to_simple_ref().to_string()
     }
 
     /// Return this ID as a lowercase hexadecimal string, with dashes.
     pub fn dashed_hex(&self) -> String {
-        format!("{}", self.uuid_v4.to_hyphenated_ref())
+        self.0.to_hyphenated_ref().to_string()
     }
+}
 
-    /// Custom serialization (lower hex).
-    fn ser_uuid<S>(field: &Uuid, s: S) -> ::std::result::Result<S::Ok, S::Error>
+impl AsRef<[u8]> for Id128 {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl AsRef<OsStr> for Id128 {
+    fn as_ref(&self) -> &OsStr {
+        OsStr::from_bytes(self.as_bytes())
+    }
+}
+
+impl From<[u8; 16]> for Id128 {
+    fn from(bytes: [u8; 16]) -> Self {
+        Self(Uuid::from_bytes(bytes))
+    }
+}
+
+impl FromStr for Id128 {
+    type Err = SdError;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        Ok(Self(input.parse().map_err(|e| {
+            format!("failed to parse ID from string: {}", e)
+        })?))
+    }
+}
+
+impl TryFrom<&[u8]> for Id128 {
+    type Error = SdError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self(Uuid::from_slice(bytes).map_err(|e| {
+            format!("failed to parse ID from bytes slice: {}", e)
+        })?))
+    }
+}
+
+// TODO: (in 0.4): make optional behind serde feature
+impl serde_crate::Serialize for Id128 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: ::serde::Serializer,
+        S: serde_crate::Serializer,
     {
-        let mut hex = String::new();
-        for byte in field.as_bytes() {
-            hex.push_str(&format!("{:02x}", byte));
+        if serializer.is_human_readable() {
+            self.lower_hex().serialize(serializer)
+        } else {
+            self.as_bytes().serialize(serializer)
         }
-        s.serialize_str(&hex)
     }
 }
 
-impl fmt::Debug for Id128 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.dashed_hex())
+impl<'de> serde_crate::Deserialize<'de> for Id128 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde_crate::Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            Ok(Self(Uuid::deserialize(deserializer)?))
+        } else {
+            Ok(Self(uuid::adapter::compact::deserialize(deserializer)?))
+        }
     }
 }
 
-/// Return this machine unique ID.
+#[deprecated(since = "0.3.2", note = "use Id128::from_machine()")]
 pub fn get_machine() -> Result<Id128, SdError> {
-    let mut buf = String::new();
-    let mut fd = fs::File::open("/etc/machine-id")
-        .map_err(|e| format!("failed to open machine-id: {}", e))?;
-    fd.read_to_string(&mut buf)
-        .map_err(|e| format!("failed to read machine-id: {}", e))?;
-    Id128::parse_str(buf.trim_end())
+    Id128::from_machine()
 }
 
 /// Return this machine unique ID, hashed with an application-specific ID.
+#[deprecated(since = "0.3.2", note = "use Id128::from_machine()?.app_specific()")]
 pub fn get_machine_app_specific(app_id: &Id128) -> Result<Id128, SdError> {
-    let machine_id = get_machine()?;
-    machine_id.app_specific(app_id)
+    Id128::from_machine()?.app_specific(app_id)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde_test::{assert_tokens, Configure, Token};
 
     #[test]
     fn basic_parse_str() {
         let input = "2e074e9b299c41a59923c51ae16f279b";
-        let id = Id128::parse_str(input).unwrap();
+        let id = input.parse::<Id128>().unwrap();
         assert_eq!(id.lower_hex(), input);
 
-        Id128::parse_str("").unwrap_err();
+        assert!("".parse::<Id128>().is_err());
     }
 
     #[test]
     fn basic_keyed_hash() {
-        let input = "2e074e9b299c41a59923c51ae16f279b";
-        let machine_id = Id128::parse_str(input).unwrap();
-        assert_eq!(input, machine_id.lower_hex());
+        let machine_id = "2e074e9b299c41a59923c51ae16f279b".parse::<Id128>().unwrap();
+        let app_id = "033b1b9b264441fcaa173e9e5bf35c5a".parse().unwrap();
 
-        let key = "033b1b9b264441fcaa173e9e5bf35c5a";
-        let app_id = Id128::parse_str(key).unwrap();
-        assert_eq!(key, app_id.lower_hex());
-
-        let expected = "4d4a86c9c6644a479560ded5d19a30c5";
-        let hashed_id = Id128::parse_str(expected).unwrap();
+        let hashed_id = "4d4a86c9c6644a479560ded5d19a30c5".parse().unwrap();
 
         let output = machine_id.app_specific(&app_id).unwrap();
         assert_eq!(output, hashed_id);
@@ -138,20 +174,61 @@ mod test {
     #[test]
     fn basic_from_slice() {
         let input_str = "d86a4e9e4dca45c5bcd9846409bfa1ae";
-        let input = [
+        let array = [
             0xd8, 0x6a, 0x4e, 0x9e, 0x4d, 0xca, 0x45, 0xc5, 0xbc, 0xd9, 0x84, 0x64, 0x09, 0xbf,
             0xa1, 0xae,
         ];
-        let id = Id128::try_from_slice(&input).unwrap();
+        let slice: &[u8] = &[
+            0xd8, 0x6a, 0x4e, 0x9e, 0x4d, 0xca, 0x45, 0xc5, 0xbc, 0xd9, 0x84, 0x64, 0x09, 0xbf,
+            0xa1, 0xae,
+        ];
+
+        let id = Id128::from(array);
+        assert_eq!(input_str, id.lower_hex());
+        let id = Id128::try_from(slice).unwrap();
         assert_eq!(input_str, id.lower_hex());
 
-        Id128::try_from_slice(&[]).unwrap_err();
+        Id128::try_from([].as_ref()).unwrap_err();
     }
 
     #[test]
     fn basic_debug() {
         let input = "0b37f793-aeb9-4d67-99e1-6e678d86781f";
-        let id = Id128::parse_str(input).unwrap();
+        let id = input.parse::<Id128>().unwrap();
         assert_eq!(id.dashed_hex(), input);
+    }
+
+    #[test]
+    fn test_ser_de() {
+        let id: Id128 = "1071334a-9324-4511-adcc-b8d8b70eb1c2".parse().unwrap();
+
+        assert_tokens(
+            &id.readable(),
+            &[Token::Str("1071334a93244511adccb8d8b70eb1c2")],
+        );
+
+        assert_tokens(
+            &id.compact(),
+            &[
+                Token::Tuple { len: 16 },
+                Token::U8(16),
+                Token::U8(113),
+                Token::U8(51),
+                Token::U8(74),
+                Token::U8(147),
+                Token::U8(36),
+                Token::U8(69),
+                Token::U8(17),
+                Token::U8(173),
+                Token::U8(204),
+                Token::U8(184),
+                Token::U8(216),
+                Token::U8(183),
+                Token::U8(14),
+                Token::U8(177),
+                Token::U8(194),
+                Token::TupleEnd,
+            ],
+        );
     }
 }

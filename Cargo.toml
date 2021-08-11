@@ -9,26 +9,27 @@ description = "A pure-Rust client library to interact with systemd"
 keywords = ["systemd", "linux"]
 categories = ["api-bindings", "os::unix-apis"]
 readme = "README.md"
-exclude = [
-".gitignore",
-".travis.yml",
-]
+exclude = [".gitignore", ".travis.yml"]
 edition = "2018"
 
 [dependencies]
-hmac = "^0.11"
-libc = "^0.2"
-log = "^0.4"
-nix = "^0.22"
-serde = { version = "^1.0.91", features = ["derive"] }
-sha2 = "^0.9"
-thiserror = "^1.0"
-uuid = { version = "^0.8.1", features = ["serde"] }
+hmac = "0.11"
+libc = "0.2"
+log = "0.4"
+nix = "0.22"
+serde_crate = { package = "serde", version = "1.0.91" }
+sha2 = "0.9"
+uuid = { features = ["serde"], version = "0.8" }
 
 [dev-dependencies]
-quickcheck = "^1.0"
-serde_json = "^1.0"
-rand = "^0.8"
+quickcheck = "1.0"
+serde_json = "1.0"
+serde_test = "1.0"
+rand = "0.8"
+
+[features]
+# 0.4 make serde optional
+#serde = ["uuid/serde", "serde_crate"]
 
 [package.metadata.release]
 sign-commit = true
