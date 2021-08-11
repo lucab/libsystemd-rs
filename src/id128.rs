@@ -1,5 +1,5 @@
 use crate::errors::SdError;
-use std::{convert::TryFrom, ffi::OsStr, fs, os::unix::ffi::OsStrExt, str::FromStr};
+use std::{convert::TryFrom, fs, str::FromStr};
 use uuid::Uuid;
 
 /// A 128-bits ID.
@@ -75,12 +75,6 @@ impl Id128 {
 impl AsRef<[u8]> for Id128 {
     fn as_ref(&self) -> &[u8] {
         self.as_bytes()
-    }
-}
-
-impl AsRef<OsStr> for Id128 {
-    fn as_ref(&self) -> &OsStr {
-        OsStr::from_bytes(self.as_bytes())
     }
 }
 
