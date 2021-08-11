@@ -7,6 +7,7 @@ use uuid::Uuid;
 pub struct Id128(Uuid);
 
 impl Id128 {
+    /// Returns the ID as a byte array.
     pub const fn as_bytes(&self) -> &[u8; 16] {
         self.0.as_bytes()
     }
@@ -46,6 +47,7 @@ impl Id128 {
         Self::try_from(&hashed[..16])
     }
 
+    /// Return the unique boot ID.
     pub fn from_boot() -> Result<Self, SdError> {
         let buf = fs::read_to_string("/proc/sys/kernel/random/boot_id")
             .map_err(|e| format!("failed to open boot_id: {}", e))?;
