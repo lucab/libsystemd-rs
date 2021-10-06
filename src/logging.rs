@@ -1,4 +1,4 @@
-use crate::errors::{JournalStreamEnvError, ParseJournalStreamError, SdError};
+use crate::errors::SdError;
 use libc::{dev_t, ino_t};
 use nix::fcntl::*;
 use nix::sys::memfd::memfd_create;
@@ -231,37 +231,50 @@ impl JournalStream {
     /// numbers of the systemd journal stream, separated by `:`.
     ///
     /// See also [`JournalStream::from_env()`] and [`JournalStream::from_env_default()`].
-    pub fn parse<S: AsRef<OsStr>>(value: S) -> Result<Self, ParseJournalStreamError> {
-        use ParseJournalStreamError::*;
-        let s = value
-            .as_ref()
-            .to_str()
-            .ok_or_else(|| ValueNotUtf8Encoded(value.as_ref().to_os_string()))?;
-        let (device_s, inode_s) = s
-            .find(':')
-            .map(|i| (&s[..i], &s[i + 1..]))
-            .ok_or_else(|| ParseJournalStreamError::MissingSeparator(s.to_string()))?;
-        let device = dev_t::from_str(device_s).map_err(FailedToParseDeviceNumber)?;
-        let inode = ino_t::from_str(inode_s).map_err(FailedToParseInodeNumber)?;
+    pub fn parse<S: AsRef<OsStr>>(value: S) -> Result<Self, SdError> {
+        let s = value.as_ref().to_str().ok_or_else(|| {
+            SdError(format!(
+                "Failed to parse journal stream: Value {:?} not UTF-8 encoded",
+                value.as_ref()
+            ))
+        })?;
+        let (device_s, inode_s) = s.find(':').map(|i| (&s[..i], &s[i + 1..])).ok_or_else(|| {
+            SdError(format!(
+                "Failed to parse journal stream: Missing separator ':' in value '{}'",
+                s
+            ))
+        })?;
+        let device = dev_t::from_str(device_s).map_err(|err| {
+            SdError(format!(
+                "Failed to parse journal stream: Device part is not a number '{}': {}",
+                device_s, err
+            ))
+        })?;
+        let inode = ino_t::from_str(inode_s).map_err(|err| {
+            SdError(format!(
+                "Failed to parse journal stream: Inode part is not a number '{}': {}",
+                inode_s, err
+            ))
+        })?;
         Ok(JournalStream { device, inode })
     }
 
     /// Parse the device and inode number of the systemd journal stream denoted by the given environment variable.
     ///
     /// See [`JournalStream::parse()`] for more information.
-    pub fn from_env<S: AsRef<OsStr>>(key: S) -> Result<Self, JournalStreamEnvError> {
-        use JournalStreamEnvError::*;
-        Self::parse(
-            std::env::var_os(&key)
-                .ok_or_else(|| EnvironmentVariableUnset(key.as_ref().to_os_string()))?,
-        )
-        .map_err(|e| ParseError(key.as_ref().to_os_string(), e))
+    pub fn from_env<S: AsRef<OsStr>>(key: S) -> Result<Self, SdError> {
+        Self::parse(std::env::var_os(&key).ok_or_else(|| {
+            SdError(format!(
+                "Failed to parse journal stream: Environment variable {:?} unset",
+                key.as_ref()
+            ))
+        })?)
     }
 
     /// Parse the device and inode number of the systemd journal stream denoted by the default `$JOURNAL_STREAM` variable.
     ///
     /// See [`JournalStream::from_env()`] and [`JournalStream::parse()`].
-    pub fn from_env_default() -> Result<Self, JournalStreamEnvError> {
+    pub fn from_env_default() -> Result<Self, SdError> {
         Self::from_env("JOURNAL_STREAM")
     }
 
