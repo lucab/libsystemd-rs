@@ -31,7 +31,7 @@ pub trait IsType {
 
 /// File descriptor passed by systemd to socket-activated services.
 ///
-/// See https://www.freedesktop.org/software/systemd/man/systemd.socket.html.
+/// See <https://www.freedesktop.org/software/systemd/man/systemd.socket.html>.
 #[derive(Debug, Clone)]
 pub struct FileDescriptor(SocketFd);
 

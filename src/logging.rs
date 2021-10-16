@@ -1,15 +1,17 @@
 use crate::errors::SdError;
+use libc::{dev_t, ino_t};
 use nix::fcntl::*;
 use nix::sys::memfd::memfd_create;
 use nix::sys::memfd::MemFdCreateFlag;
 use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, SockAddr};
 use std::collections::HashMap;
-use std::ffi::CString;
+use std::ffi::{CString, OsStr};
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::io::FromRawFd;
 use std::os::unix::io::{AsRawFd, IntoRawFd};
 use std::os::unix::net::UnixDatagram;
+use std::str::FromStr;
 
 /// Default path of the systemd-journald `AF_UNIX` datagram socket.
 pub static SD_JOURNAL_SOCK_PATH: &str = "/run/systemd/journal/socket";
@@ -211,6 +213,107 @@ fn send_memfd_payload(sock: UnixDatagram, data: &[u8]) -> Result<usize, SdError>
     .map_err(|e| e.to_string())?;
 
     Ok(data.len())
+}
+
+/// A systemd journal stream.
+#[derive(Debug, PartialEq)]
+pub struct JournalStream {
+    /// The device number of the journal stream.
+    device: dev_t,
+    /// The inode number of the journal stream.
+    inode: ino_t,
+}
+
+impl JournalStream {
+    /// Parse the device and inode number from a systemd journal stream specification.
+    ///
+    /// This value is typically extracted from `$JOURNAL_STREAM`, and consists of the device and inode
+    /// numbers of the systemd journal stream, separated by `:`.
+    ///
+    /// See also [`JournalStream::from_env()`] and [`JournalStream::from_env_default()`].
+    pub fn parse<S: AsRef<OsStr>>(value: S) -> Result<Self, SdError> {
+        let s = value.as_ref().to_str().ok_or_else(|| {
+            SdError(format!(
+                "Failed to parse journal stream: Value {:?} not UTF-8 encoded",
+                value.as_ref()
+            ))
+        })?;
+        let (device_s, inode_s) = s.find(':').map(|i| (&s[..i], &s[i + 1..])).ok_or_else(|| {
+            SdError(format!(
+                "Failed to parse journal stream: Missing separator ':' in value '{}'",
+                s
+            ))
+        })?;
+        let device = dev_t::from_str(device_s).map_err(|err| {
+            SdError(format!(
+                "Failed to parse journal stream: Device part is not a number '{}': {}",
+                device_s, err
+            ))
+        })?;
+        let inode = ino_t::from_str(inode_s).map_err(|err| {
+            SdError(format!(
+                "Failed to parse journal stream: Inode part is not a number '{}': {}",
+                inode_s, err
+            ))
+        })?;
+        Ok(JournalStream { device, inode })
+    }
+
+    /// Parse the device and inode number of the systemd journal stream denoted by the given environment variable.
+    ///
+    /// See [`JournalStream::parse()`] for more information.
+    pub fn from_env<S: AsRef<OsStr>>(key: S) -> Result<Self, SdError> {
+        Self::parse(std::env::var_os(&key).ok_or_else(|| {
+            SdError(format!(
+                "Failed to parse journal stream: Environment variable {:?} unset",
+                key.as_ref()
+            ))
+        })?)
+    }
+
+    /// Parse the device and inode number of the systemd journal stream denoted by the default `$JOURNAL_STREAM` variable.
+    ///
+    /// See [`JournalStream::from_env()`] and [`JournalStream::parse()`].
+    pub fn from_env_default() -> Result<Self, SdError> {
+        Self::from_env("JOURNAL_STREAM")
+    }
+
+    /// Get the journal stream that would correspond to the given file descriptor.
+    ///
+    /// Return a journal stream struct containing the device and inode number of the given file descriptor.
+    pub fn from_fd<F: AsRawFd>(fd: F) -> std::io::Result<Self> {
+        nix::sys::stat::fstat(fd.as_raw_fd())
+            .map(|stat| JournalStream {
+                device: stat.st_dev,
+                inode: stat.st_ino,
+            })
+            .map_err(std::io::Error::from)
+    }
+}
+
+/// Whether this process is directly connected to the journal.
+///
+/// Inspects the `$JOURNAL_STREAM` environment variable and compares the device and inode
+/// numbers in this variable against the stdout and stderr file descriptors.
+///
+/// Return `true` if either stream matches the device and inode numbers in `$JOURNAL_STREAM`,
+/// and `false` otherwise (or in case of any IO error).
+///
+/// Systemd sets `$JOURNAL_STREAM` to the device and inode numbers of the standard output
+/// or standard error streams of the current process if either of these streams is connected
+/// to the systemd journal.
+///
+/// Systemd explicitly recommends that services check this variable to upgrade their logging
+/// to the native systemd journal protocol.
+///
+/// See section “Environment Variables Set or Propagated by the Service Manager” in
+/// [systemd.exec(5)][1] for more information.
+///
+/// [1]: https://www.freedesktop.org/software/systemd/man/systemd.exec.html#Environment%20Variables%20Set%20or%20Propagated%20by%20the%20Service%20Manager
+pub fn connected_to_journal() -> bool {
+    let stream = JournalStream::from_env_default().ok();
+    stream == JournalStream::from_fd(std::io::stderr()).ok()
+        || stream == JournalStream::from_fd(std::io::stdout()).ok()
 }
 
 #[cfg(test)]
