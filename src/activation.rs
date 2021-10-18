@@ -115,12 +115,12 @@ pub fn receive_descriptors_with_names(
 ) -> Result<Vec<(FileDescriptor, String)>, SdError> {
     let pid = env::var("LISTEN_PID");
     let fds = env::var("LISTEN_FDS");
-    let names = env::var("LISTEN_FDNAMES");
+    let fdnames = env::var("LISTEN_FDNAMES");
     log::trace!(
         "LISTEN_PID = {:?}; LISTEN_FDS = {:?}; LISTEN_FDNAMES = {:?}",
         pid,
         fds,
-        names
+        fdnames
     );
 
     if unset_env {
@@ -142,13 +142,10 @@ pub fn receive_descriptors_with_names(
         return Err("PID mismatch".into());
     }
 
-    let names: Vec<String> = names
-        .map_err(|e| format!("failed to get LISTEN_FDNAMES: {}", e))?
-        .split(':')
-        .map(String::from)
-        .collect();
+    let fdnames = fdnames.map_err(|e| format!("failed to get LISTEN_FDNAMES: {}", e))?;
+    let names = fdnames.split(':').map(String::from);
     let vec = socks_from_fds(fds)?;
-    let out = vec.into_iter().zip(names.into_iter()).collect();
+    let out = vec.into_iter().zip(names).collect();
 
     Ok(out)
 }
