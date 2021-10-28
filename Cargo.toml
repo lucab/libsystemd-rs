@@ -1,6 +1,6 @@
 [package]
 name = "libsystemd"
-version = "0.3.2-alpha.0"
+version = "0.4.0"
 authors = ["Luca Bruno <lucab@lucabruno.net>", "Sebastian Wiesner <sebastian@swsnr.de>"]
 license = "MIT/Apache-2.0"
 repository = "https://github.com/lucab/libsystemd-rs"
@@ -36,8 +36,8 @@ name = "connected_to_journal"
 harness = false
 
 [package.metadata.release]
-disable-publish = true
-disable-push = true
+publish = false
+push = false
 post-release-commit-message = "cargo: development version bump"
 pre-release-commit-message = "cargo: libsystemd release {{version}}"
 sign-commit = true
