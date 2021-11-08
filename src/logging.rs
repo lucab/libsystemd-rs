@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::ffi::{CString, OsStr};
 use std::fs::File;
 use std::io::Write;
+use std::os::unix::io::AsRawFd;
 use std::os::unix::io::FromRawFd;
-use std::os::unix::io::{AsRawFd, IntoRawFd};
 use std::os::unix::net::UnixDatagram;
 use std::str::FromStr;
 
@@ -194,13 +194,13 @@ fn send_memfd_payload(sock: UnixDatagram, data: &[u8]) -> Result<usize, SdError>
         // SAFETY: `memfd_create` just returned this FD.
         let mut file = unsafe { File::from_raw_fd(tmpfd) };
         file.write_all(data).map_err(|e| e.to_string())?;
-        file.into_raw_fd()
+        file
     };
 
     // Seal the memfd, so that journald knows it can safely mmap/read it.
-    fcntl(memfd, FcntlArg::F_ADD_SEALS(SealFlag::all())).map_err(|e| e.to_string())?;
+    fcntl(memfd.as_raw_fd(), FcntlArg::F_ADD_SEALS(SealFlag::all())).map_err(|e| e.to_string())?;
 
-    let fds = &[memfd];
+    let fds = &[memfd.as_raw_fd()];
     let ancillary = [ControlMessage::ScmRights(fds)];
     let path = SockAddr::new_unix(SD_JOURNAL_SOCK_PATH).map_err(|e| e.to_string())?;
     sendmsg(
@@ -211,6 +211,9 @@ fn send_memfd_payload(sock: UnixDatagram, data: &[u8]) -> Result<usize, SdError>
         Some(&path),
     )
     .map_err(|e| e.to_string())?;
+
+    // Close our side of the memfd after we send it to systemd.
+    drop(memfd);
 
     Ok(data.len())
 }
