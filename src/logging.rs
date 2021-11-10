@@ -4,6 +4,7 @@ use nix::fcntl::*;
 use nix::sys::memfd::memfd_create;
 use nix::sys::memfd::MemFdCreateFlag;
 use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, SockAddr};
+use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::ffi::{CString, OsStr};
 use std::fs::File;
@@ -15,6 +16,9 @@ use std::str::FromStr;
 
 /// Default path of the systemd-journald `AF_UNIX` datagram socket.
 pub static SD_JOURNAL_SOCK_PATH: &str = "/run/systemd/journal/socket";
+
+/// The shared socket to journald.
+static SD_SOCK: OnceCell<UnixDatagram> = OnceCell::new();
 
 /// Trait for checking the type of a file descriptor.
 
@@ -141,8 +145,10 @@ where
     K: AsRef<str>,
     V: AsRef<str>,
 {
-    let sock =
-        UnixDatagram::unbound().map_err(|e| format!("failed to open datagram socket: {}", e))?;
+    let sock = SD_SOCK.get_or_try_init(|| {
+        UnixDatagram::unbound()
+            .map_err(|e| SdError(format!("failed to open datagram socket: {}", e)))
+    })?;
 
     let mut data = Vec::new();
     add_field_and_payload(&mut data, "PRIORITY", &(u8::from(priority)).to_string());
@@ -185,7 +191,7 @@ pub fn journal_print(priority: Priority, msg: &str) -> Result<(), SdError> {
 /// This is a slow-path for sending a large payload that could not otherwise fit
 /// in a UNIX datagram. Payload is thus written to a memfd, which is sent as ancillary
 /// data.
-fn send_memfd_payload(sock: UnixDatagram, data: &[u8]) -> Result<usize, SdError> {
+fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError> {
     let memfd = {
         let fdname = &CString::new("libsystemd-rs-logging").map_err(|e| e.to_string())?;
         let tmpfd =
