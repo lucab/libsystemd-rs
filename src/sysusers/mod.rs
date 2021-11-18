@@ -4,13 +4,17 @@
 //! <https://www.freedesktop.org/software/systemd/man/sysusers.d.html>.
 
 use crate::errors::SdError;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::path::PathBuf;
 
 mod format;
+mod serialization;
 
 /// Single entry in `sysusers.d` configuration format.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(untagged)]
 pub enum SysusersEntry {
     AddRange(AddRange),
     AddUserToGroup(AddUserToGroup),
@@ -19,10 +23,11 @@ pub enum SysusersEntry {
 }
 
 /// Sysusers entry of type `r`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(try_from = "serialization::SysusersData")]
 pub struct AddRange {
-    from: u32,
-    to: u32,
+    pub(crate) from: u32,
+    pub(crate) to: u32,
 }
 
 impl AddRange {
@@ -33,10 +38,11 @@ impl AddRange {
 }
 
 /// Sysusers entry of type `m`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(try_from = "serialization::SysusersData")]
 pub struct AddUserToGroup {
-    username: String,
-    groupname: String,
+    pub(crate) username: String,
+    pub(crate) groupname: String,
 }
 
 impl AddUserToGroup {
@@ -52,49 +58,44 @@ impl AddUserToGroup {
 }
 
 /// Sysusers entry of type `g`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(try_from = "serialization::SysusersData")]
 pub struct CreateGroup {
-    groupname: String,
-    gid: GidOrPath,
+    pub(crate) groupname: String,
+    pub(crate) gid: GidOrPath,
 }
 
 impl CreateGroup {
     /// Create a new `CreateGroup` entry.
     pub fn new(groupname: String) -> Result<Self, SdError> {
-        validate_name_strict(&groupname)?;
-        Ok(Self {
-            groupname,
-            gid: GidOrPath::Automatic,
-        })
+        Self::impl_new(groupname, GidOrPath::Automatic)
     }
 
     /// Create a new `CreateGroup` entry, using a numeric ID.
     pub fn new_with_gid(groupname: String, gid: u32) -> Result<Self, SdError> {
-        validate_name_strict(&groupname)?;
-        Ok(Self {
-            groupname,
-            gid: GidOrPath::Gid(gid),
-        })
+        Self::impl_new(groupname, GidOrPath::Gid(gid))
     }
 
     /// Create a new `CreateGroup` entry, using a filepath reference.
     pub fn new_with_path(groupname: String, path: PathBuf) -> Result<Self, SdError> {
+        Self::impl_new(groupname, GidOrPath::Path(path))
+    }
+
+    pub(crate) fn impl_new(groupname: String, gid: GidOrPath) -> Result<Self, SdError> {
         validate_name_strict(&groupname)?;
-        Ok(Self {
-            groupname,
-            gid: GidOrPath::Path(path),
-        })
+        Ok(Self { groupname, gid })
     }
 }
 
 /// Sysusers entry of type `u`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(try_from = "serialization::SysusersData")]
 pub struct CreateUserAndGroup {
-    name: String,
-    id: IdOrPath,
-    gecos: String,
-    home_dir: Option<PathBuf>,
-    shell: Option<PathBuf>,
+    pub(crate) name: String,
+    pub(crate) id: IdOrPath,
+    pub(crate) gecos: String,
+    pub(crate) home_dir: Option<PathBuf>,
+    pub(crate) shell: Option<PathBuf>,
 }
 
 impl CreateUserAndGroup {
@@ -161,7 +162,7 @@ impl CreateUserAndGroup {
         Self::impl_new(name, gecos, home_dir, shell, IdOrPath::Path(path))
     }
 
-    fn impl_new(
+    pub(crate) fn impl_new(
         name: String,
         gecos: String,
         home_dir: Option<PathBuf>,
@@ -189,12 +190,61 @@ pub(crate) enum IdOrPath {
     Automatic,
 }
 
+impl TryFrom<&str> for IdOrPath {
+    type Error = SdError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if value == "-" {
+            return Ok(IdOrPath::Automatic);
+        }
+        if value.starts_with('/') {
+            return Ok(IdOrPath::Path(value.into()));
+        }
+        if let Ok(single_id) = value.parse() {
+            return Ok(IdOrPath::Id(single_id));
+        }
+        let tokens: Vec<_> = value.split(':').filter(|s| !s.is_empty()).collect();
+        if tokens.len() == 2 {
+            let uid: u32 = tokens[0].parse().map_err(|_| "invalid user id")?;
+            let id = match tokens[1].parse() {
+                Ok(gid) => IdOrPath::UidGid((uid, gid)),
+                _ => {
+                    let groupname = tokens[1].to_string();
+                    validate_name_strict(&groupname)?;
+                    IdOrPath::UidGroupname((uid, groupname))
+                }
+            };
+            return Ok(id);
+        }
+
+        Err(format!("unexpected user ID '{}'", value).into())
+    }
+}
+
 /// ID entity for `CreateGroup`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum GidOrPath {
     Gid(u32),
     Path(PathBuf),
     Automatic,
+}
+
+impl TryFrom<&str> for GidOrPath {
+    type Error = SdError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if value == "-" {
+            return Ok(GidOrPath::Automatic);
+        }
+        if value.starts_with('/') {
+            return Ok(GidOrPath::Path(value.into()));
+        }
+        if let Ok(parsed_gid) = value.parse() {
+            return Ok(GidOrPath::Gid(parsed_gid));
+        }
+
+        Err(format!("unexpected group ID '{}'", value).into())
+    }
 }
 
 /// Validate a sysusers name in strict mode.
