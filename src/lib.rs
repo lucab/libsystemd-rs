@@ -23,18 +23,14 @@
 
 /// Interfaces for socket-activated services.
 pub mod activation;
-
 /// Interfaces for systemd-aware daemons.
 pub mod daemon;
-
 /// Error handling.
 pub mod errors;
-
-/// Helpers for logging to systemd-journald.
-pub mod logging;
-
-/// Helpers for working with systemd units.
-pub mod unit;
-
 /// APIs for processing 128-bits IDs.
 pub mod id128;
+/// Helpers for logging to `systemd-journald`.
+pub mod logging;
+pub mod sysusers;
+/// Helpers for working with systemd units.
+pub mod unit;
