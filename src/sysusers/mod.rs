@@ -2,14 +2,54 @@
 //!
 //! For the complete documentation see
 //! <https://www.freedesktop.org/software/systemd/man/sysusers.d.html>.
+//!
+//! ## Example
+//!
+//! ```rust
+//! # fn doctest_parse() -> Result<(), libsystemd::errors::SdError> {
+//! use libsystemd::sysusers;
+//!
+//! let config_fragment = r#"
+//! #Type Name     ID             GECOS                 Home directory Shell
+//! u     httpd    404            "HTTP User"
+//! u     _authd   /usr/bin/authd "Authorization user"
+//! u     postgres -              "Postgresql Database" /var/lib/pgsql /usr/libexec/postgresdb
+//! g     input    -              -
+//! m     _authd   input
+//! u     root     0              "Superuser"           /root          /bin/zsh
+//! r     -        500-900
+//! "#;
+//!
+//! let mut reader = config_fragment.as_bytes();
+//! let entries = sysusers::parse_from_reader(&mut reader)?;
+//! assert_eq!(entries.len(), 7);
+//!
+//! let users_and_groups: Vec<_> = entries
+//!     .into_iter()
+//!     .filter_map(|v| {
+//!         match v.type_signature() {
+//!             "u" | "g" => Some(v.name().to_string()),
+//!             _ => None,
+//!         }
+//!     })
+//!     .collect();
+//! assert_eq!(users_and_groups, vec!["httpd", "_authd", "postgres", "input", "root"]);
+//! # Ok(())
+//! # }
+//! # doctest_parse().unwrap();
+//! ```
 
+pub(crate) use self::serialization::SysusersData;
 use crate::errors::SdError;
+pub use parse::parse_from_reader;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use std::convert::TryFrom;
+use std::io::BufRead;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 mod format;
+mod parse;
 mod serialization;
 
 /// Single entry in `sysusers.d` configuration format.
@@ -46,7 +86,7 @@ impl SysusersEntry {
 
 /// Sysusers entry of type `r`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(try_from = "serialization::SysusersData")]
+#[serde(try_from = "SysusersData")]
 pub struct AddRange {
     pub(crate) from: u32,
     pub(crate) to: u32,
@@ -72,11 +112,15 @@ impl AddRange {
     pub fn to(&self) -> u32 {
         self.to
     }
+
+    pub(crate) fn into_sysusers_entry(self) -> SysusersEntry {
+        SysusersEntry::AddRange(self)
+    }
 }
 
 /// Sysusers entry of type `m`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(try_from = "serialization::SysusersData")]
+#[serde(try_from = "SysusersData")]
 pub struct AddUserToGroup {
     pub(crate) username: String,
     pub(crate) groupname: String,
@@ -107,11 +151,15 @@ impl AddUserToGroup {
     pub fn groupname(&self) -> &str {
         &self.groupname
     }
+
+    pub(crate) fn into_sysusers_entry(self) -> SysusersEntry {
+        SysusersEntry::AddUserToGroup(self)
+    }
 }
 
 /// Sysusers entry of type `g`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(try_from = "serialization::SysusersData")]
+#[serde(try_from = "SysusersData")]
 pub struct CreateGroup {
     pub(crate) groupname: String,
     pub(crate) gid: GidOrPath,
@@ -160,11 +208,15 @@ impl CreateGroup {
             _ => None,
         }
     }
+
+    pub(crate) fn into_sysusers_entry(self) -> SysusersEntry {
+        SysusersEntry::CreateGroup(self)
+    }
 }
 
 /// Sysusers entry of type `u`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(try_from = "serialization::SysusersData")]
+#[serde(try_from = "SysusersData")]
 pub struct CreateUserAndGroup {
     pub(crate) name: String,
     pub(crate) id: IdOrPath,
@@ -287,6 +339,10 @@ impl CreateUserAndGroup {
             _ => None,
         }
     }
+
+    pub(crate) fn into_sysusers_entry(self) -> SysusersEntry {
+        SysusersEntry::CreateUserAndGroup(self)
+    }
 }
 
 /// ID entity for `CreateUserAndGroup`.
@@ -299,10 +355,10 @@ pub(crate) enum IdOrPath {
     Automatic,
 }
 
-impl TryFrom<&str> for IdOrPath {
-    type Error = SdError;
+impl FromStr for IdOrPath {
+    type Err = SdError;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         if value == "-" {
             return Ok(IdOrPath::Automatic);
         }
@@ -338,10 +394,10 @@ pub(crate) enum GidOrPath {
     Automatic,
 }
 
-impl TryFrom<&str> for GidOrPath {
-    type Error = SdError;
+impl FromStr for GidOrPath {
+    type Err = SdError;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         if value == "-" {
             return Ok(GidOrPath::Automatic);
         }

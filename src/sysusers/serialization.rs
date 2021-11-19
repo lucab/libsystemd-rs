@@ -1,7 +1,7 @@
 use super::*;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
-use std::convert::TryInto;
+use std::convert::TryFrom;
 
 /// Number of fields in each sysusers entry.
 const SYSUSERS_FIELDS: usize = 6;
@@ -72,7 +72,7 @@ impl TryFrom<SysusersData> for CreateGroup {
         ensure_field_none_or_automatic("Home directory", &value.home_dir)?;
         ensure_field_none_or_automatic("Shell", &value.shell)?;
 
-        let gid: GidOrPath = value.id.as_str().try_into()?;
+        let gid: GidOrPath = value.id.parse()?;
         Self::impl_new(value.name, gid)
     }
 }
@@ -85,7 +85,7 @@ impl TryFrom<SysusersData> for CreateUserAndGroup {
             return Err(format!("unexpected sysuser entry of type '{}'", value.kind).into());
         }
 
-        let id: IdOrPath = value.id.as_str().try_into()?;
+        let id: IdOrPath = value.id.parse()?;
         Self::impl_new(
             value.name,
             value.gecos.unwrap_or_default(),
