@@ -102,7 +102,7 @@ impl Serialize for AddRange {
         S: Serializer,
     {
         let mut state = serializer.serialize_struct("AddRange", SYSUSERS_FIELDS)?;
-        state.serialize_field("Type", "r")?;
+        state.serialize_field("Type", self.type_signature())?;
         state.serialize_field("Name", "-")?;
         state.serialize_field("ID", &format!("{}-{}", self.from, self.to))?;
         state.serialize_field("GECOS", &Option::<String>::None)?;
@@ -118,7 +118,7 @@ impl Serialize for AddUserToGroup {
         S: Serializer,
     {
         let mut state = serializer.serialize_struct("AddUserToGroup", SYSUSERS_FIELDS)?;
-        state.serialize_field("Type", "m")?;
+        state.serialize_field("Type", self.type_signature())?;
         state.serialize_field("Name", &self.username)?;
         state.serialize_field("ID", &self.groupname)?;
         state.serialize_field("GECOS", &Option::<String>::None)?;
@@ -134,7 +134,7 @@ impl Serialize for CreateGroup {
         S: Serializer,
     {
         let mut state = serializer.serialize_struct("CreateGroup", SYSUSERS_FIELDS)?;
-        state.serialize_field("Type", "g")?;
+        state.serialize_field("Type", self.type_signature())?;
         state.serialize_field("Name", &self.groupname)?;
         state.serialize_field("ID", &self.gid)?;
         state.serialize_field("GECOS", &Option::<String>::None)?;
@@ -150,7 +150,7 @@ impl Serialize for CreateUserAndGroup {
         S: Serializer,
     {
         let mut state = serializer.serialize_struct("CreateUserAndGroup", SYSUSERS_FIELDS)?;
-        state.serialize_field("Type", "u")?;
+        state.serialize_field("Type", self.type_signature())?;
         state.serialize_field("Name", &self.name)?;
         state.serialize_field("ID", &self.id)?;
         state.serialize_field("GECOS", &self.gecos)?;

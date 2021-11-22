@@ -22,6 +22,28 @@ pub enum SysusersEntry {
     CreateUserAndGroup(CreateUserAndGroup),
 }
 
+impl SysusersEntry {
+    /// Return the single-character signature for the "Type" field of this entry.
+    pub fn type_signature(&self) -> &str {
+        match self {
+            SysusersEntry::AddRange(v) => v.type_signature(),
+            SysusersEntry::AddUserToGroup(v) => v.type_signature(),
+            SysusersEntry::CreateGroup(v) => v.type_signature(),
+            SysusersEntry::CreateUserAndGroup(v) => v.type_signature(),
+        }
+    }
+
+    /// Return the value for the "Name" field of this entry.
+    pub fn name(&self) -> &str {
+        match self {
+            SysusersEntry::AddRange(_) => "-",
+            SysusersEntry::AddUserToGroup(v) => &v.username,
+            SysusersEntry::CreateGroup(v) => &v.groupname,
+            SysusersEntry::CreateUserAndGroup(v) => &v.name,
+        }
+    }
+}
+
 /// Sysusers entry of type `r`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(try_from = "serialization::SysusersData")]
@@ -34,6 +56,21 @@ impl AddRange {
     /// Create a new `AddRange` entry.
     pub fn new(from: u32, to: u32) -> Result<Self, SdError> {
         Ok(Self { from, to })
+    }
+
+    /// Return the single-character signature for the "Type" field of this entry.
+    pub fn type_signature(&self) -> &str {
+        "r"
+    }
+
+    /// Return the lower end for the range of this entry.
+    pub fn from(&self) -> u32 {
+        self.from
+    }
+
+    /// Return the upper end for the range of this entry.
+    pub fn to(&self) -> u32 {
+        self.to
     }
 }
 
@@ -54,6 +91,21 @@ impl AddUserToGroup {
             username,
             groupname,
         })
+    }
+
+    /// Return the single-character signature for the "Type" field of this entry.
+    pub fn type_signature(&self) -> &str {
+        "m"
+    }
+
+    /// Return the user name ("Name" field) of this entry.
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
+    /// Return the group name ("ID" field) of this entry.
+    pub fn groupname(&self) -> &str {
+        &self.groupname
     }
 }
 
@@ -84,6 +136,29 @@ impl CreateGroup {
     pub(crate) fn impl_new(groupname: String, gid: GidOrPath) -> Result<Self, SdError> {
         validate_name_strict(&groupname)?;
         Ok(Self { groupname, gid })
+    }
+
+    /// Return the single-character signature for the "Type" field of this entry.
+    pub fn type_signature(&self) -> &str {
+        "g"
+    }
+
+    /// Return the group name ("Name" field) of this entry.
+    pub fn groupname(&self) -> &str {
+        &self.groupname
+    }
+
+    /// Return whether GID is dynamically allocated at runtime.
+    pub fn has_dynamic_gid(&self) -> bool {
+        matches!(self.gid, GidOrPath::Automatic)
+    }
+
+    /// Return the group identifier (GID) of this entry, if statically set.
+    pub fn static_gid(&self) -> Option<u32> {
+        match self.gid {
+            GidOrPath::Gid(n) => Some(n),
+            _ => None,
+        }
     }
 }
 
@@ -177,6 +252,40 @@ impl CreateUserAndGroup {
             home_dir,
             shell,
         })
+    }
+
+    /// Return the single-character signature for the "Type" field of this entry.
+    pub fn type_signature(&self) -> &str {
+        "u"
+    }
+
+    /// Return the user and group name ("Name" field) of this entry.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Return whether UID and GID are dynamically allocated at runtime.
+    pub fn has_dynamic_ids(&self) -> bool {
+        matches!(self.id, IdOrPath::Automatic)
+    }
+
+    /// Return the user identifier (UID) of this entry, if statically set.
+    pub fn static_uid(&self) -> Option<u32> {
+        match self.id {
+            IdOrPath::Id(n) => Some(n),
+            IdOrPath::UidGid((n, _)) => Some(n),
+            IdOrPath::UidGroupname((n, _)) => Some(n),
+            _ => None,
+        }
+    }
+
+    /// Return the groups identifier (GID) of this entry, if statically set.
+    pub fn static_gid(&self) -> Option<u32> {
+        match self.id {
+            IdOrPath::Id(n) => Some(n),
+            IdOrPath::UidGid((_, n)) => Some(n),
+            _ => None,
+        }
     }
 }
 
