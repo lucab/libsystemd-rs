@@ -7,6 +7,8 @@ use std::str::FromStr;
 
 /// Parse `sysusers.d` configuration entries from a buffered reader.
 pub fn parse_from_reader(bufrd: &mut impl BufRead) -> Result<Vec<SysusersEntry>, SdError> {
+    use crate::errors::ErrorKind;
+
     let mut output = vec![];
     for (index, item) in bufrd.lines().enumerate() {
         let linenumber = index.saturating_add(1);
@@ -18,14 +20,19 @@ pub fn parse_from_reader(bufrd: &mut impl BufRead) -> Result<Vec<SysusersEntry>,
             continue;
         }
 
-        let entry: SysusersEntry = data.parse().map_err(|e: SdError| {
-            format!(
-                "failed to parse sysusers entry at line {}: {}",
-                linenumber, e.0
-            )
-        })?;
-
-        output.push(entry);
+        match data.parse() {
+            Ok(entry) => output.push(entry),
+            Err(SdError { kind, msg }) if kind == ErrorKind::SysusersUnknownType => {
+                log::warn!("skipped line {}: {}", linenumber, msg);
+            }
+            Err(e) => {
+                let msg = format!(
+                    "failed to parse sysusers entry at line {}: {}",
+                    linenumber, e.msg
+                );
+                return Err(msg.into());
+            }
+        };
     }
 
     Ok(output)
@@ -35,13 +42,22 @@ impl FromStr for SysusersEntry {
     type Err = SdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use crate::errors::ErrorKind;
+
         let input = s.trim();
         match input.chars().next() {
             Some('g') => CreateGroup::from_str(input).map(|v| v.into_sysusers_entry()),
             Some('m') => AddUserToGroup::from_str(input).map(|v| v.into_sysusers_entry()),
             Some('r') => AddRange::from_str(input).map(|v| v.into_sysusers_entry()),
             Some('u') => CreateUserAndGroup::from_str(input).map(|v| v.into_sysusers_entry()),
-            _ => Err("unrecognized sysusers type".into()),
+            Some(t) => {
+                let unknown = SdError {
+                    kind: ErrorKind::SysusersUnknownType,
+                    msg: format!("unknown sysusers type signature '{}'", t),
+                };
+                Err(unknown)
+            }
+            None => Err("missing sysusers type signature".into()),
         }
     }
 }

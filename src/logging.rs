@@ -146,8 +146,7 @@ where
     V: AsRef<str>,
 {
     let sock = SD_SOCK.get_or_try_init(|| {
-        UnixDatagram::unbound()
-            .map_err(|e| SdError(format!("failed to open datagram socket: {}", e)))
+        UnixDatagram::unbound().map_err(|e| format!("failed to open datagram socket: {}", e))
     })?;
 
     let mut data = Vec::new();
@@ -242,28 +241,28 @@ impl JournalStream {
     /// See also [`JournalStream::from_env()`] and [`JournalStream::from_env_default()`].
     pub fn parse<S: AsRef<OsStr>>(value: S) -> Result<Self, SdError> {
         let s = value.as_ref().to_str().ok_or_else(|| {
-            SdError(format!(
+            format!(
                 "Failed to parse journal stream: Value {:?} not UTF-8 encoded",
                 value.as_ref()
-            ))
+            )
         })?;
         let (device_s, inode_s) = s.find(':').map(|i| (&s[..i], &s[i + 1..])).ok_or_else(|| {
-            SdError(format!(
+            format!(
                 "Failed to parse journal stream: Missing separator ':' in value '{}'",
                 s
-            ))
+            )
         })?;
         let device = dev_t::from_str(device_s).map_err(|err| {
-            SdError(format!(
+            format!(
                 "Failed to parse journal stream: Device part is not a number '{}': {}",
                 device_s, err
-            ))
+            )
         })?;
         let inode = ino_t::from_str(inode_s).map_err(|err| {
-            SdError(format!(
+            format!(
                 "Failed to parse journal stream: Inode part is not a number '{}': {}",
                 inode_s, err
-            ))
+            )
         })?;
         Ok(JournalStream { device, inode })
     }
@@ -273,10 +272,10 @@ impl JournalStream {
     /// See [`JournalStream::parse()`] for more information.
     pub fn from_env<S: AsRef<OsStr>>(key: S) -> Result<Self, SdError> {
         Self::parse(std::env::var_os(&key).ok_or_else(|| {
-            SdError(format!(
+            format!(
                 "Failed to parse journal stream: Environment variable {:?} unset",
                 key.as_ref()
-            ))
+            )
         })?)
     }
 
