@@ -2,17 +2,33 @@ use thiserror::Error;
 
 /// Library errors.
 #[derive(Error, Debug)]
-#[error("libsystemd error: {0}")]
-pub struct SdError(pub(crate) String);
+#[error("libsystemd error: {msg}")]
+pub struct SdError {
+    pub(crate) kind: ErrorKind,
+    pub(crate) msg: String,
+}
 
 impl From<&str> for SdError {
     fn from(arg: &str) -> Self {
-        Self(arg.to_string())
+        Self {
+            kind: ErrorKind::Generic,
+            msg: arg.to_string(),
+        }
     }
 }
 
 impl From<String> for SdError {
     fn from(arg: String) -> Self {
-        Self(arg)
+        Self {
+            kind: ErrorKind::Generic,
+            msg: arg,
+        }
     }
+}
+
+/// Markers for recoverable error kinds.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ErrorKind {
+    Generic,
+    SysusersUnknownType,
 }
