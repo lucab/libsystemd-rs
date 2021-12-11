@@ -23,6 +23,7 @@
 
 /// Interfaces for socket-activated services.
 pub mod activation;
+mod credential;
 /// Interfaces for systemd-aware daemons.
 pub mod daemon;
 /// Error handling.
@@ -34,3 +35,5 @@ pub mod logging;
 pub mod sysusers;
 /// Helpers for working with systemd units.
 pub mod unit;
+
+pub use credential::CredentialLoader;
