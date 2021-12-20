@@ -36,7 +36,7 @@ impl Id128 {
 
     /// Hash this ID with an application-specific ID.
     pub fn app_specific(&self, app: &Self) -> Result<Self, SdError> {
-        use hmac::{Hmac, Mac, NewMac};
+        use hmac::{Hmac, Mac};
         use sha2::Sha256;
 
         let mut mac = Hmac::<Sha256>::new_from_slice(self.uuid_v4.as_bytes())
