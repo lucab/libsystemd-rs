@@ -292,7 +292,10 @@ impl JournalStream {
     pub fn from_fd<F: AsRawFd>(fd: F) -> std::io::Result<Self> {
         nix::sys::stat::fstat(fd.as_raw_fd())
             .map(|stat| JournalStream {
+                #[cfg(not(target_arch = "mips"))]
                 device: stat.st_dev,
+                #[cfg(target_arch = "mips")]
+                device: stat.st_dev as u64,
                 inode: stat.st_ino,
             })
             .map_err(std::io::Error::from)
