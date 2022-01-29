@@ -1,6 +1,5 @@
 use crate::errors::SdError;
 use libc::pid_t;
-use nix::unistd;
 use std::os::unix::net::UnixDatagram;
 use std::{env, fmt, fs, path, time};
 
@@ -40,7 +39,7 @@ pub fn watchdog_enabled(unset_env: bool) -> Option<time::Duration> {
     let pid = {
         if let Some(pid_str) = env_pid {
             if let Ok(p) = pid_str.parse::<pid_t>() {
-                unistd::Pid::from_raw(p)
+                p
             } else {
                 return None;
             }
@@ -49,7 +48,7 @@ pub fn watchdog_enabled(unset_env: bool) -> Option<time::Duration> {
         }
     };
 
-    if unistd::getpid() == pid {
+    if unsafe { libc::getpid() } == pid {
         Some(timeout)
     } else {
         None
@@ -104,7 +103,7 @@ pub enum NotifyState {
     /// Stores additional file descriptors in the service manager.
     Fdstore,
     /// The main process ID of the service, in case of forking applications.
-    Mainpid(unistd::Pid),
+    Mainpid(pid_t),
     /// Custom state change, as a `KEY=VALUE` string.
     Other(String),
     /// Service startup is finished.

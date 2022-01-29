@@ -1,12 +1,12 @@
 use crate::errors::SdError;
-use nix::mqueue::mq_getattr;
-use nix::sys::socket::getsockname;
-use nix::sys::socket::SockAddr;
-use nix::sys::stat::fstat;
 use std::convert::TryFrom;
 use std::env;
+use std::mem::MaybeUninit;
 use std::os::unix::io::{IntoRawFd, RawFd};
 use std::process;
+
+use crate::sys::socket::get_socket_family;
+use crate::sys::stdio::fstat;
 
 /// Minimum FD number used by systemd for passing sockets.
 const SD_LISTEN_FDS_START: RawFd = 3;
@@ -168,31 +168,27 @@ fn socks_from_fds(num_fds: usize) -> Result<Vec<FileDescriptor>, SdError> {
 
 impl IsType for RawFd {
     fn is_fifo(&self) -> bool {
-        fstat(*self)
-            .map(|stat| (stat.st_mode & 0o0_170_000) == 0o010_000)
-            .unwrap_or(false)
+        fstat(*self).map_or(false, |s| (s.st_mode & 0o0_170_000) == 0o010_000)
     }
 
     fn is_special(&self) -> bool {
-        fstat(*self)
-            .map(|stat| (stat.st_mode & 0o0_170_000) == 0o100_000)
-            .unwrap_or(false)
+        fstat(*self).map_or(false, |s| (s.st_mode & 0o0_170_000) == 0o100_000)
     }
 
     fn is_inet(&self) -> bool {
-        getsockname(*self)
-            .map(|addr| matches!(addr, SockAddr::Inet(_)))
-            .unwrap_or(false)
+        get_socket_family(*self).map_or(false, |f| libc::c_int::from(f) == libc::AF_INET)
     }
 
     fn is_unix(&self) -> bool {
-        getsockname(*self)
-            .map(|addr| matches!(addr, SockAddr::Unix(_)))
-            .unwrap_or(false)
+        get_socket_family(*self).map_or(false, |f| libc::c_int::from(f) == libc::AF_INET)
     }
 
     fn is_mq(&self) -> bool {
-        mq_getattr(*self).is_ok()
+        // SAFETY: We need to pass some pointer to mq_getattr, but we never actually use it.
+        unsafe {
+            let mut attr = MaybeUninit::zeroed();
+            libc::mq_getattr(*self, attr.as_mut_ptr()) == 0
+        }
     }
 }
 

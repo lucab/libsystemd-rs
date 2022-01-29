@@ -21,6 +21,9 @@
 //! }
 //! ```
 
+/// Native interfaces
+mod sys;
+
 /// Interfaces for socket-activated services.
 pub mod activation;
 /// Interfaces for systemd-aware daemons.

@@ -1,18 +1,18 @@
 use crate::errors::SdError;
-use nix::fcntl::*;
-use nix::sys::memfd::memfd_create;
-use nix::sys::memfd::MemFdCreateFlag;
-use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, SockAddr};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::ffi::{CString, OsStr};
-use std::fs::{File, Metadata};
+use std::ffi::OsStr;
+use std::fs::Metadata;
 use std::io::Write;
 use std::os::linux::fs::MetadataExt;
 use std::os::unix::io::FromRawFd;
 use std::os::unix::io::{AsRawFd, IntoRawFd};
 use std::os::unix::net::UnixDatagram;
 use std::str::FromStr;
+
+use crate::sys::memfd;
+use crate::sys::socket::send_one_fd_to;
+use crate::sys::stdio;
 
 /// Default path of the systemd-journald `AF_UNIX` datagram socket.
 pub static SD_JOURNAL_SOCK_PATH: &str = "/run/systemd/journal/socket";
@@ -179,6 +179,7 @@ where
     })?;
     Ok(())
 }
+
 /// Print a message to the journal with the given priority.
 pub fn journal_print(priority: Priority, msg: &str) -> Result<(), SdError> {
     let map: HashMap<&str, &str> = HashMap::new();
@@ -191,34 +192,22 @@ pub fn journal_print(priority: Priority, msg: &str) -> Result<(), SdError> {
 /// in a UNIX datagram. Payload is thus written to a memfd, which is sent as ancillary
 /// data.
 fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError> {
-    let memfd = {
-        let fdname = &CString::new("libsystemd-rs-logging").map_err(|e| e.to_string())?;
-        let tmpfd =
-            memfd_create(fdname, MemFdCreateFlag::MFD_ALLOW_SEALING).map_err(|e| e.to_string())?;
-
-        // SAFETY: `memfd_create` just returned this FD.
-        let mut file = unsafe { File::from_raw_fd(tmpfd) };
-        file.write_all(data).map_err(|e| e.to_string())?;
-        file
-    };
+    let mut memfd = memfd::create(libc::MFD_ALLOW_SEALING | libc::MFD_CLOEXEC)
+        .map_err(|e| format!("Failed to create memfd for message payload: {}", e))?;
+    memfd
+        .write_all(data)
+        .map_err(|e| e.to_string())
+        .map_err(|e| format!("Failed to write message payload to memfd: {}", e))?;
 
     // Seal the memfd, so that journald knows it can safely mmap/read it.
-    fcntl(memfd.as_raw_fd(), FcntlArg::F_ADD_SEALS(SealFlag::all())).map_err(|e| e.to_string())?;
+    stdio::seal_all(memfd.as_raw_fd())
+        .map_err(|e| format!("Failed to seal memfd for message payload: {}", e))?;
 
-    let fds = &[memfd.as_raw_fd()];
-    let ancillary = [ControlMessage::ScmRights(fds)];
-    let path = SockAddr::new_unix(SD_JOURNAL_SOCK_PATH).map_err(|e| e.to_string())?;
-    sendmsg(
-        sock.as_raw_fd(),
-        &[],
-        &ancillary,
-        MsgFlags::empty(),
-        Some(&path),
-    )
-    .map_err(|e| e.to_string())?;
-
-    // Close our side of the memfd after we send it to systemd.
-    drop(memfd);
+    // Send the memfd off to journald; note that this _duplicates_ the fd to the
+    // other process so we deliberatly as_raw_fd to retain ownership of our own
+    // fd so that it gets dropped and closed at the end of this function.
+    send_one_fd_to(sock, memfd.as_raw_fd(), SD_JOURNAL_SOCK_PATH)
+        .map_err(|e| format!("Failed to send memfd to journald: {}", e))?;
 
     Ok(data.len())
 }
@@ -337,6 +326,8 @@ pub fn connected_to_journal() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::Error;
 
     fn ensure_journald_socket() -> bool {
         match std::fs::metadata(SD_JOURNAL_SOCK_PATH) {
@@ -495,7 +486,13 @@ mod tests {
         assert_ne!(journal_stream.device, 0);
         assert_ne!(journal_stream.inode, 0);
         // Easy way to check if a file descriptor is still open, see https://stackoverflow.com/a/12340730/355252
-        let result = fcntl(file.as_raw_fd(), FcntlArg::F_GETFD);
+        let result = unsafe {
+            if libc::fcntl(file.as_raw_fd(), libc::F_GETFD) < 0 {
+                Err(Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        };
         assert!(
             result.is_ok(),
             "File descriptor not valid anymore after JournalStream::from_fd: {:?}",
