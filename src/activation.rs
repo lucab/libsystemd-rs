@@ -1,5 +1,4 @@
 use crate::errors::SdError;
-use nix::mqueue::mq_getattr;
 use nix::sys::socket::getsockname;
 use nix::sys::socket::SockAddr;
 use nix::sys::stat::fstat;
@@ -192,7 +191,12 @@ impl IsType for RawFd {
     }
 
     fn is_mq(&self) -> bool {
-        mq_getattr(*self).is_ok()
+        // `nix` does not enable us to test if a raw fd is a mq, so we must drop to libc here.
+        // SAFETY: `mq_getattr` is specified to return -1 when passed a fd which is not a mq.
+        //         Furthermore, we ignore `attr` and rely only on the return value.
+        let mut attr = std::mem::MaybeUninit::<libc::mq_attr>::uninit();
+        let res = unsafe { libc::mq_getattr(*self, attr.as_mut_ptr()) };
+        res == 0
     }
 }
 
