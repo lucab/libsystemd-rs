@@ -5,7 +5,7 @@ on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
   # Minimum supported Rust version (MSRV)
-  ACTION_MSRV_TOOLCHAIN: 1.46.0
+  ACTION_MSRV_TOOLCHAIN: 1.48.0
   # Pinned toolchain for linting
   ACTION_LINTS_TOOLCHAIN: 1.55.0
 

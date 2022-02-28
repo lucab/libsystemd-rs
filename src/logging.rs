@@ -1,5 +1,4 @@
 use crate::errors::SdError;
-use libc::{dev_t, ino_t};
 use nix::fcntl::*;
 use nix::sys::memfd::memfd_create;
 use nix::sys::memfd::MemFdCreateFlag;
@@ -7,10 +6,11 @@ use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, SockAddr};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::ffi::{CString, OsStr};
-use std::fs::File;
+use std::fs::{File, Metadata};
 use std::io::Write;
-use std::os::unix::io::AsRawFd;
+use std::os::linux::fs::MetadataExt;
 use std::os::unix::io::FromRawFd;
+use std::os::unix::io::{AsRawFd, IntoRawFd};
 use std::os::unix::net::UnixDatagram;
 use std::str::FromStr;
 
@@ -227,9 +227,9 @@ fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError
 #[derive(Debug, PartialEq)]
 pub struct JournalStream {
     /// The device number of the journal stream.
-    device: dev_t,
+    device: u64,
     /// The inode number of the journal stream.
-    inode: ino_t,
+    inode: u64,
 }
 
 impl JournalStream {
@@ -252,13 +252,13 @@ impl JournalStream {
                 s
             )
         })?;
-        let device = dev_t::from_str(device_s).map_err(|err| {
+        let device = u64::from_str(device_s).map_err(|err| {
             format!(
                 "Failed to parse journal stream: Device part is not a number '{}': {}",
                 device_s, err
             )
         })?;
-        let inode = ino_t::from_str(inode_s).map_err(|err| {
+        let inode = u64::from_str(inode_s).map_err(|err| {
             format!(
                 "Failed to parse journal stream: Inode part is not a number '{}': {}",
                 inode_s, err
@@ -286,16 +286,26 @@ impl JournalStream {
         Self::from_env("JOURNAL_STREAM")
     }
 
+    /// Get the journal stream that would correspond to the given file metadata.
+    ///
+    /// Return a journal stream struct containing the device and inode number of the given file metadata.
+    pub fn from_metadata(metadata: &Metadata) -> Self {
+        Self {
+            device: metadata.st_dev(),
+            inode: metadata.st_ino(),
+        }
+    }
+
     /// Get the journal stream that would correspond to the given file descriptor.
     ///
     /// Return a journal stream struct containing the device and inode number of the given file descriptor.
     pub fn from_fd<F: AsRawFd>(fd: F) -> std::io::Result<Self> {
-        nix::sys::stat::fstat(fd.as_raw_fd())
-            .map(|stat| JournalStream {
-                device: stat.st_dev,
-                inode: stat.st_ino,
-            })
-            .map_err(std::io::Error::from)
+        // SAFETY: We do claim ownership of the file descriptor here, but we moved it back out down below.
+        let file = unsafe { std::fs::File::from_raw_fd(fd.as_raw_fd()) };
+        let stream = file.metadata().map(|m| Self::from_metadata(&m));
+        // Move the file descriptor back out of `file` to make sure the caller of this function retains ownership.
+        let _ = file.into_raw_fd();
+        stream
     }
 }
 
@@ -474,6 +484,22 @@ mod tests {
         assert_eq!(
             data,
             vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n', b'\n']
+        );
+    }
+
+    #[test]
+    fn journal_stream_from_fd_does_not_claim_ownership_of_fd() {
+        // Just get hold of some open file which we know exists and can be read by the current user.
+        let file = File::open(file!()).unwrap();
+        let journal_stream = JournalStream::from_fd(file.as_raw_fd()).unwrap();
+        assert_ne!(journal_stream.device, 0);
+        assert_ne!(journal_stream.inode, 0);
+        // Easy way to check if a file descriptor is still open, see https://stackoverflow.com/a/12340730/355252
+        let result = fcntl(file.as_raw_fd(), FcntlArg::F_GETFD);
+        assert!(
+            result.is_ok(),
+            "File descriptor not valid anymore after JournalStream::from_fd: {:?}",
+            result,
         );
     }
 }
