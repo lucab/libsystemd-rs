@@ -67,7 +67,7 @@ impl Id128 {
 
     /// Return this ID as a lowercase hexadecimal string, with dashes.
     pub fn dashed_hex(&self) -> String {
-        format!("{}", self.uuid_v4.to_hyphenated_ref())
+        format!("{}", self.uuid_v4.hyphenated())
     }
 
     /// Custom serialization (lower hex).
