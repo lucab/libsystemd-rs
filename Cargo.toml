@@ -24,7 +24,7 @@ nom = "7"
 serde = { version = "^1.0.91", features = ["derive"] }
 sha2 = "^0.10"
 thiserror = "^1.0"
-uuid = { version = "^0.8.1", features = ["serde"] }
+uuid = { version = "^1.0.0", features = ["serde"] }
 once_cell = "^1.8"
 
 [dev-dependencies]
