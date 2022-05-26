@@ -2,7 +2,7 @@ use crate::errors::SdError;
 use nix::fcntl::*;
 use nix::sys::memfd::memfd_create;
 use nix::sys::memfd::MemFdCreateFlag;
-use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, SockAddr};
+use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, UnixAddr};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::ffi::{CString, OsStr};
@@ -207,7 +207,7 @@ fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError
 
     let fds = &[memfd.as_raw_fd()];
     let ancillary = [ControlMessage::ScmRights(fds)];
-    let path = SockAddr::new_unix(SD_JOURNAL_SOCK_PATH).map_err(|e| e.to_string())?;
+    let path = UnixAddr::new(SD_JOURNAL_SOCK_PATH).map_err(|e| e.to_string())?;
     sendmsg(
         sock.as_raw_fd(),
         &[],

@@ -1,6 +1,6 @@
 use crate::errors::SdError;
 use nix::sys::socket::getsockname;
-use nix::sys::socket::SockAddr;
+use nix::sys::socket::{AddressFamily, SockaddrLike, SockaddrStorage};
 use nix::sys::stat::fstat;
 use std::convert::TryFrom;
 use std::env;
@@ -179,14 +179,19 @@ impl IsType for RawFd {
     }
 
     fn is_inet(&self) -> bool {
-        getsockname(*self)
-            .map(|addr| matches!(addr, SockAddr::Inet(_)))
+        getsockname::<SockaddrStorage>(*self)
+            .map(|addr| {
+                matches!(
+                    addr.family(),
+                    Some(AddressFamily::Inet) | Some(AddressFamily::Inet6)
+                )
+            })
             .unwrap_or(false)
     }
 
     fn is_unix(&self) -> bool {
-        getsockname(*self)
-            .map(|addr| matches!(addr, SockAddr::Unix(_)))
+        getsockname::<SockaddrStorage>(*self)
+            .map(|addr| matches!(addr.family(), Some(AddressFamily::Unix)))
             .unwrap_or(false)
     }
 
