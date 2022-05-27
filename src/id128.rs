@@ -105,6 +105,21 @@ pub fn get_machine_app_specific(app_id: &Id128) -> Result<Id128, SdError> {
     machine_id.app_specific(app_id)
 }
 
+/// Return the unique ID of this boot.
+pub fn get_boot() -> Result<Id128, SdError> {
+    let mut buf = String::new();
+    let mut fd = fs::File::open("/proc/sys/kernel/random/boot_id")
+        .map_err(|e| format!("failed to open boot_id: {}", e))?;
+    fd.read_to_string(&mut buf)
+        .map_err(|e| format!("failed to read boot_id: {}", e))?;
+    Id128::parse_str(buf.trim_end())
+}
+
+/// Return the unique ID of this boot, hashed with an application-specific ID.
+pub fn get_boot_app_specific(app_id: &Id128) -> Result<Id128, SdError> {
+    get_boot()?.app_specific(app_id)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
