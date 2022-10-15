@@ -1,39 +1,43 @@
-//! File descriptor storing (FDSTORE) example.
-//!
-//! Store a piece of state in form of a file descriptor which will survive the life of the process
-//! by storing the file descriptor in systemd. The stored file descriptors are made available to
-//! the process on restart.
-//!
-//! The example demonstates this by storing a single byte in a memory backed file. The byte is
-//! sent to systemd and incremented before exiting. Upon automatic restart the state is retrieved
-//! from systemd and incremented again. If the state byte has been incremented a set amount of
-//! times (3) the example is considered finished.
-//!
-//! In this example systemd must be configured to restart only on certain exit statuses. See the
-//! example commands below.
-//!
-//! ```shell
-//! cargo build --example persistent_state
-//! systemd-run --user -p RestartForceExitStatus=2 -p SuccessExitStatus=2 -p FileDescriptorStoreMax=1 --wait ./target/debug/examples/persistent_state
-//! journalctl --user -ocat -xeu <unitname>.service
-//! ```
-//!
-//! The persistent behaviour can be observed in the journalctl log for the unit:
-//! ```shell
-//! Started ./target/debug/examples/persistent_state.
-//! Created new persistent state
-//! State was: 1, exit and restart
-//! <unitname>.service: Scheduled restart job, restart counter is at 1.
-//! Stopped ./target/debug/examples/persistent_state.
-//! Started ./target/debug/examples/persistent_state.
-//! Fetched persistent state from systemd
-//! State was: 2, exit and restart
-//! <unitname>.service: Scheduled restart job, restart counter is at 2.
-//! Stopped ./target/debug/examples/persistent_state.
-//! Started ./target/debug/examples/persistent_state.
-//! Fetched persistent state from systemd
-//! Exiting normally because persistent state is now 3
-//! ```
+// File descriptor storing (FDSTORE) example.
+//
+// Store a piece of state in form of a file descriptor which will survive the life of the process
+// by storing the file descriptor in systemd. The stored file descriptors are made available to
+// the process on restart.
+//
+// The example demonstates this by storing a single byte in a memory backed file. The byte is
+// sent to systemd and incremented before exiting. Upon automatic restart the state is retrieved
+// from systemd and incremented again. If the state byte has been incremented a set amount of
+// times (3) the example is considered finished.
+//
+// In this example systemd must be configured to restart only on certain exit statuses. See the
+// example commands below.
+//
+// ```shell
+// cargo build --example persistent_state
+// systemd-run --user -p RestartForceExitStatus=2 -p SuccessExitStatus=2 -p FileDescriptorStoreMax=1 --wait ./target/debug/examples/persistent_state
+// journalctl --user -ocat -xeu <unitname>.service
+// ```
+//
+// The persistent behaviour can be observed in the journalctl log for the unit:
+// ```shell
+// Started ./target/debug/examples/persistent_state.
+// Created new persistent state
+// State was: 1, exit and restart
+// <unitname>.service: Scheduled restart job, restart counter is at 1.
+// Stopped ./target/debug/examples/persistent_state.
+// Started ./target/debug/examples/persistent_state.
+// Fetched persistent state from systemd
+// State was: 2, exit and restart
+// <unitname>.service: Scheduled restart job, restart counter is at 2.
+// Stopped ./target/debug/examples/persistent_state.
+// Started ./target/debug/examples/persistent_state.
+// Fetched persistent state from systemd
+// Exiting normally because persistent state is now 3
+// ```
+//
+// Please note that this example is also part of the integration suite.
+// See tests/persistent_store.rs. Specifically it is important that the test is updated
+// if changes are made to the systemd-run command above.
 
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
@@ -121,6 +125,6 @@ fn run() -> Result<i32, Box<dyn Error>> {
     Ok(0)
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+pub fn main() -> Result<(), Box<dyn Error>> {
     std::process::exit(run()?);
 }
