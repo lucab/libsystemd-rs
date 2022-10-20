@@ -7,10 +7,9 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::ffi::{CString, OsStr};
 use std::fs::{File, Metadata};
-use std::io::Write;
+use std::io::{self, Write};
 use std::os::linux::fs::MetadataExt;
-use std::os::unix::io::FromRawFd;
-use std::os::unix::io::{AsRawFd, IntoRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixDatagram;
 use std::str::FromStr;
 
@@ -329,9 +328,10 @@ impl JournalStream {
 ///
 /// [1]: https://www.freedesktop.org/software/systemd/man/systemd.exec.html#Environment%20Variables%20Set%20or%20Propagated%20by%20the%20Service%20Manager
 pub fn connected_to_journal() -> bool {
-    let stream = JournalStream::from_env_default().ok();
-    stream == JournalStream::from_fd(std::io::stderr()).ok()
-        || stream == JournalStream::from_fd(std::io::stdout()).ok()
+    JournalStream::from_env_default().map_or(false, |env_stream| {
+        JournalStream::from_fd(io::stderr()).map_or(false, |e| e == env_stream)
+            || JournalStream::from_fd(io::stdout()).map_or(false, |o| o == env_stream)
+    })
 }
 
 #[cfg(test)]
