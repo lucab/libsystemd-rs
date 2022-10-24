@@ -38,6 +38,10 @@ pretty_assertions = "^1.0"
 name = "connected_to_journal"
 harness = false
 
+[[test]]
+name = "persistent_state"
+harness = false
+
 [package.metadata.release]
 publish = false
 push = false

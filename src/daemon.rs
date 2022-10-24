@@ -1,6 +1,9 @@
 use crate::errors::SdError;
 use libc::pid_t;
+use nix::sys::socket;
 use nix::unistd;
+use std::io::{self, IoSlice};
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::UnixDatagram;
 use std::{env, fmt, fs, path, time};
 
@@ -62,7 +65,20 @@ pub fn watchdog_enabled(unset_env: bool) -> Option<time::Duration> {
 /// The returned boolean show whether notifications are supported for
 /// this service. If `unset_env` is true, environment will be cleared
 /// and no further notifications are possible.
+/// Also see [`notify_with_fds`] which can send file descriptors to the
+/// service manager.
 pub fn notify(unset_env: bool, state: &[NotifyState]) -> Result<bool, SdError> {
+    notify_with_fds(unset_env, state, &[])
+}
+
+/// Notify service manager about status changes and send file descriptors.
+///
+/// Use this together with [`NotifyState::Fdstore`]. Otherwise works like [`notify`].
+pub fn notify_with_fds(
+    unset_env: bool,
+    state: &[NotifyState],
+    fds: &[RawFd],
+) -> Result<bool, SdError> {
     let env_sock = env::var("NOTIFY_SOCKET").ok();
 
     if unset_env {
@@ -78,14 +94,31 @@ pub fn notify(unset_env: bool, state: &[NotifyState]) -> Result<bool, SdError> {
     };
     let sock =
         UnixDatagram::unbound().map_err(|e| format!("failed to open datagram socket: {}", e))?;
+    sock.connect(path)
+        .map_err(|e| format!("failed to connect to notify socket: {}", e))?;
 
     let msg = state
         .iter()
-        .fold(String::new(), |res, s| res + &format!("{}\n", s));
+        .fold(String::new(), |res, s| res + &format!("{}\n", s))
+        .into_bytes();
     let msg_len = msg.len();
-    let sent_len = sock
-        .send_to(msg.as_bytes(), path)
-        .map_err(|e| format!("failed to send datagram: {}", e))?;
+
+    let sent_len = if fds.is_empty() {
+        sock.send(&msg)
+    } else {
+        let msg_iov = IoSlice::new(&msg);
+        let ancillary = [socket::ControlMessage::ScmRights(fds)];
+        socket::sendmsg(
+            sock.as_raw_fd(),
+            &[msg_iov],
+            &ancillary,
+            socket::MsgFlags::empty(),
+            None::<&()>,
+        )
+        .map_err(|e| io::Error::from_raw_os_error(e as i32))
+    }
+    .map_err(|e| format!("failed to send datagram: {}", e))?;
+
     if sent_len != msg_len {
         return Err(format!("incomplete write, sent {} out of {}", sent_len, msg_len).into());
     }
@@ -101,8 +134,14 @@ pub enum NotifyState {
     Errno(u8),
     /// A name for the submitted file descriptors.
     Fdname(String),
-    /// Stores additional file descriptors in the service manager.
+    /// Stores additional file descriptors in the service manager. Use [`notify_with_fds`] with this.
     Fdstore,
+    /// Remove stored file descriptors. Must be used together with [`NotifyState::Fdname`].
+    FdstoreRemove,
+    /// Tell the service manager to not poll the filedescriptors for errors. This causes
+    /// systemd to hold on to broken file descriptors which must be removed manually.
+    /// Must be used together with [`NotifyState::Fdstore`].
+    FdpollDisable,
     /// The main process ID of the service, in case of forking applications.
     Mainpid(unistd::Pid),
     /// Custom state change, as a `KEY=VALUE` string.
@@ -128,6 +167,8 @@ impl fmt::Display for NotifyState {
             NotifyState::Errno(e) => write!(f, "ERRNO={}", e),
             NotifyState::Fdname(ref s) => write!(f, "FDNAME={}", s),
             NotifyState::Fdstore => write!(f, "FDSTORE=1"),
+            NotifyState::FdstoreRemove => write!(f, "FDSTOREREMOVE=1"),
+            NotifyState::FdpollDisable => write!(f, "FDPOLL=0"),
             NotifyState::Mainpid(ref p) => write!(f, "MAINPID={}", p),
             NotifyState::Other(ref s) => write!(f, "{}", s),
             NotifyState::Ready => write!(f, "READY=1"),
