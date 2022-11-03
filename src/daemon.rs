@@ -4,8 +4,8 @@ use nix::sys::socket;
 use nix::unistd;
 use std::io::{self, IoSlice};
 use std::os::unix::io::{AsRawFd, RawFd};
-use std::os::unix::net::UnixDatagram;
-use std::{env, fmt, fs, path, time};
+use std::os::unix::net::{SocketAddr, UnixDatagram};
+use std::{env, fmt, fs, time};
 
 /// Check for systemd presence at runtime.
 ///
@@ -85,16 +85,24 @@ pub fn notify_with_fds(
         env::remove_var("NOTIFY_SOCKET");
     };
 
-    let path = {
-        if let Some(p) = env_sock.map(path::PathBuf::from) {
-            p
+    let socket_addr = {
+        if let Some(p) = env_sock {
+            if p.starts_with('@') {
+                let (_, real_p) = p.split_at(1);
+                SocketAddr::from_abstract_namespace(real_p.as_bytes()).map_err(|e| {
+                    format!("illegal abstract namespace socket address {}: {}", p, e)
+                })?
+            } else {
+                SocketAddr::from_pathname(&p)
+                    .map_err(|e| format!("illegal socket address {}: {}", p, e))?
+            }
         } else {
             return Ok(false);
         }
     };
     let sock =
         UnixDatagram::unbound().map_err(|e| format!("failed to open datagram socket: {}", e))?;
-    sock.connect(path)
+    sock.connect_addr(&socket_addr)
         .map_err(|e| format!("failed to connect to notify socket: {}", e))?;
 
     let msg = state
