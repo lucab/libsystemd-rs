@@ -23,6 +23,8 @@
 
 /// Interfaces for socket-activated services.
 pub mod activation;
+/// Helpers for securely passing potentially sensitive data to services.
+pub mod credentials;
 /// Interfaces for systemd-aware daemons.
 pub mod daemon;
 /// Error handling.
