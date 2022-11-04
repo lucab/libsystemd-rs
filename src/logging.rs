@@ -308,29 +308,23 @@ impl JournalStream {
     }
 }
 
-/// Whether this process is directly connected to the journal.
+/// Whether this process can be automatically upgraded to native journal logging.
 ///
 /// Inspects the `$JOURNAL_STREAM` environment variable and compares the device and inode
-/// numbers in this variable against the stdout and stderr file descriptors.
+/// numbers in this variable against the stderr file descriptor.
 ///
-/// Return `true` if either stream matches the device and inode numbers in `$JOURNAL_STREAM`,
-/// and `false` otherwise (or in case of any IO error).
+/// Return `true` if they match, and `false` otherwise (or in case of any IO error).
 ///
-/// Systemd sets `$JOURNAL_STREAM` to the device and inode numbers of the standard output
-/// or standard error streams of the current process if either of these streams is connected
-/// to the systemd journal.
+/// For services normally logging to stderr but also supporting systemd-style structured
+/// logging, it is recommended to perform this check and thenupgrade to the native systemd
+/// journal protocol if possible.
 ///
-/// Systemd explicitly recommends that services check this variable to upgrade their logging
-/// to the native systemd journal protocol.
+/// See section “Automatic Protocol Upgrading” in [systemd documentation][1] for more information.
 ///
-/// See section “Environment Variables Set or Propagated by the Service Manager” in
-/// [systemd.exec(5)][1] for more information.
-///
-/// [1]: https://www.freedesktop.org/software/systemd/man/systemd.exec.html#Environment%20Variables%20Set%20or%20Propagated%20by%20the%20Service%20Manager
+/// [1]: https://systemd.io/JOURNAL_NATIVE_PROTOCOL/#automatic-protocol-upgrading
 pub fn connected_to_journal() -> bool {
     JournalStream::from_env_default().map_or(false, |env_stream| {
-        JournalStream::from_fd(io::stderr()).map_or(false, |e| e == env_stream)
-            || JournalStream::from_fd(io::stdout()).map_or(false, |o| o == env_stream)
+        JournalStream::from_fd(io::stderr()).map_or(false, |o| o == env_stream)
     })
 }
 
