@@ -234,11 +234,8 @@ pub struct JournalStream {
 impl JournalStream {
     /// Parse the device and inode number from a systemd journal stream specification.
     ///
-    /// This value is typically extracted from `$JOURNAL_STREAM`, and consists of the device and inode
-    /// numbers of the systemd journal stream, separated by `:`.
-    ///
-    /// See also [`JournalStream::from_env()`] and [`JournalStream::from_env_default()`].
-    pub fn parse<S: AsRef<OsStr>>(value: S) -> Result<Self, SdError> {
+    /// See also [`JournalStream::from_env()`].
+    pub(crate) fn parse<S: AsRef<OsStr>>(value: S) -> Result<Self, SdError> {
         let s = value.as_ref().to_str().ok_or_else(|| {
             format!(
                 "Failed to parse journal stream: Value {:?} not UTF-8 encoded",
@@ -267,9 +264,7 @@ impl JournalStream {
     }
 
     /// Parse the device and inode number of the systemd journal stream denoted by the given environment variable.
-    ///
-    /// See [`JournalStream::parse()`] for more information.
-    pub fn from_env<S: AsRef<OsStr>>(key: S) -> Result<Self, SdError> {
+    pub(crate) fn from_env_impl<S: AsRef<OsStr>>(key: S) -> Result<Self, SdError> {
         Self::parse(std::env::var_os(&key).ok_or_else(|| {
             format!(
                 "Failed to parse journal stream: Environment variable {:?} unset",
@@ -280,9 +275,10 @@ impl JournalStream {
 
     /// Parse the device and inode number of the systemd journal stream denoted by the default `$JOURNAL_STREAM` variable.
     ///
-    /// See [`JournalStream::from_env()`] and [`JournalStream::parse()`].
-    pub fn from_env_default() -> Result<Self, SdError> {
-        Self::from_env("JOURNAL_STREAM")
+    /// These values are extracted from `$JOURNAL_STREAM`, and consists of the device and inode
+    /// numbers of the systemd journal stream, separated by `:`.
+    pub fn from_env() -> Result<Self, SdError> {
+        Self::from_env_impl("JOURNAL_STREAM")
     }
 
     /// Get the journal stream that would correspond to the given file metadata.
@@ -299,7 +295,7 @@ impl JournalStream {
     ///
     /// Return a journal stream struct containing the device and inode number of the given file descriptor.
     pub fn from_fd<F: AsRawFd>(fd: F) -> std::io::Result<Self> {
-        // SAFETY: We do claim ownership of the file descriptor here, but we moved it back out down below.
+        // SAFETY: We do claim ownership of the file descriptor here, but we move it back out down below.
         let file = unsafe { std::fs::File::from_raw_fd(fd.as_raw_fd()) };
         let stream = file.metadata().map(|m| Self::from_metadata(&m));
         // Move the file descriptor back out of `file` to make sure the caller of this function retains ownership.
@@ -323,7 +319,7 @@ impl JournalStream {
 ///
 /// [1]: https://systemd.io/JOURNAL_NATIVE_PROTOCOL/#automatic-protocol-upgrading
 pub fn connected_to_journal() -> bool {
-    JournalStream::from_env_default().map_or(false, |env_stream| {
+    JournalStream::from_env().map_or(false, |env_stream| {
         JournalStream::from_fd(io::stderr()).map_or(false, |o| o == env_stream)
     })
 }
