@@ -1,5 +1,3 @@
-#![feature(unix_socket_abstract)]
-
 //! A pure-Rust client library to work with systemd.
 //!
 //! It provides support to interact with systemd components available
