@@ -3,9 +3,8 @@ use libc::pid_t;
 use nix::sys::socket;
 use nix::unistd;
 use std::io::{self, IoSlice};
-use std::os::unix::io::{AsRawFd, RawFd};
-use std::os::unix::net::UnixDatagram;
-use std::{env, fmt, fs, path, time};
+use std::os::unix::io::RawFd;
+use std::{env, fmt, fs, time};
 
 /// Check for systemd presence at runtime.
 ///
@@ -79,49 +78,67 @@ pub fn notify_with_fds(
     state: &[NotifyState],
     fds: &[RawFd],
 ) -> Result<bool, SdError> {
-    let env_sock = env::var("NOTIFY_SOCKET").ok();
+    let env_sock = match env::var("NOTIFY_SOCKET").ok() {
+        None => return Ok(false),
+        Some(v) => v,
+    };
 
     if unset_env {
         env::remove_var("NOTIFY_SOCKET");
     };
 
-    let path = {
-        if let Some(p) = env_sock.map(path::PathBuf::from) {
-            p
-        } else {
-            return Ok(false);
-        }
+    // If the first character of `$NOTIFY_SOCKET` is '@', the string
+    // is understood as Linux abstract namespace socket.
+    let socket_addr = match env_sock.strip_prefix('@') {
+        Some(stripped_addr) => socket::UnixAddr::new_abstract(stripped_addr.as_bytes())
+            .map_err(|e| format!("invalid Unix socket abstract address {}: {}", env_sock, e))?,
+        None => socket::UnixAddr::new(env_sock.as_str())
+            .map_err(|e| format!("invalid Unix socket path address {}: {}", env_sock, e))?,
     };
-    let sock =
-        UnixDatagram::unbound().map_err(|e| format!("failed to open datagram socket: {}", e))?;
-    sock.connect(path)
-        .map_err(|e| format!("failed to connect to notify socket: {}", e))?;
+
+    let sock_fd = socket::socket(
+        socket::AddressFamily::Unix,
+        socket::SockType::Datagram,
+        socket::SockFlag::empty(),
+        None,
+    )
+    .map_err(|e| format!("failed to open Unix datagram socket: {}", e))?;
 
     let msg = state
         .iter()
         .fold(String::new(), |res, s| res + &format!("{}\n", s))
         .into_bytes();
     let msg_len = msg.len();
+    let msg_iov = IoSlice::new(&msg);
 
-    let sent_len = if fds.is_empty() {
-        sock.send(&msg)
+    let ancillary = if !fds.is_empty() {
+        vec![socket::ControlMessage::ScmRights(fds)]
     } else {
-        let msg_iov = IoSlice::new(&msg);
-        let ancillary = [socket::ControlMessage::ScmRights(fds)];
-        socket::sendmsg(
-            sock.as_raw_fd(),
-            &[msg_iov],
-            &ancillary,
-            socket::MsgFlags::empty(),
-            None::<&()>,
+        vec![]
+    };
+
+    let sent_len = socket::sendmsg(
+        sock_fd,
+        &[msg_iov],
+        &ancillary,
+        socket::MsgFlags::empty(),
+        Some(&socket_addr),
+    )
+    .map_err(|e| {
+        format!(
+            "failed to send notify datagram: {}",
+            io::Error::from_raw_os_error(e as i32)
         )
-        .map_err(|e| io::Error::from_raw_os_error(e as i32))
-    }
-    .map_err(|e| format!("failed to send datagram: {}", e))?;
+    })?;
 
     if sent_len != msg_len {
-        return Err(format!("incomplete write, sent {} out of {}", sent_len, msg_len).into());
+        return Err(format!(
+            "incomplete notify sendmsg, sent {} out of {}",
+            sent_len, msg_len
+        )
+        .into());
     }
+
     Ok(true)
 }
 
