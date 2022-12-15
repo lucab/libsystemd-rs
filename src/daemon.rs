@@ -87,6 +87,8 @@ pub fn notify_with_fds(
         env::remove_var("NOTIFY_SOCKET");
     };
 
+    sanity_check_state_entries(state)?;
+
     // If the first character of `$NOTIFY_SOCKET` is '@', the string
     // is understood as Linux abstract namespace socket.
     let socket_addr = match env_sock.strip_prefix('@') {
@@ -196,4 +198,35 @@ impl fmt::Display for NotifyState {
             NotifyState::WatchdogUsec(u) => write!(f, "WATCHDOG_USEC={}", u),
         }
     }
+}
+
+/// Perform some basic sanity checks against state entries.
+fn sanity_check_state_entries(state: &[NotifyState]) -> Result<(), SdError> {
+    for (index, entry) in state.iter().enumerate() {
+        match entry {
+            NotifyState::Fdname(ref name) => validate_fdname(name),
+            _ => Ok(()),
+        }
+        .map_err(|e| format!("invalid notify state entry #{}: {}", index, e))?;
+    }
+
+    Ok(())
+}
+
+/// Validate an `FDNAME` according to systemd rules.
+///
+/// The name may consist of arbitrary ASCII characters except control
+/// characters or ":". It may not be longer than 255 characters.
+fn validate_fdname(fdname: &str) -> Result<(), SdError> {
+    if fdname.len() > 255 {
+        return Err(format!("fdname '{}' longer than 255 characters", fdname).into());
+    }
+
+    for c in fdname.chars() {
+        if !c.is_ascii() || c == ':' || c.is_ascii_control() {
+            return Err(format!("invalid character '{}' in fdname '{}'", c, fdname).into());
+        }
+    }
+
+    Ok(())
 }
