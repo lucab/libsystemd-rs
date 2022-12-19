@@ -61,7 +61,7 @@ impl std::convert::From<Priority> for u8 {
 }
 
 impl Priority {
-    fn as_str(&self) -> &str {
+    fn numeric_level(&self) -> &str {
         match self {
             Priority::Emergency => "0",
             Priority::Alert => "1",
@@ -118,17 +118,11 @@ fn is_valid_field(input: &str) -> bool {
 ///
 /// See <https://systemd.io/JOURNAL_NATIVE_PROTOCOL/> for details.
 fn add_field_and_payload_explicit_length(data: &mut Vec<u8>, field: &str, payload: &str) {
-    data.extend(
-        [
-            field.as_bytes(),
-            b"\n",
-            &(payload.len() as u64).to_le_bytes(),
-            payload.as_bytes(),
-            b"\n",
-        ]
-        .iter()
-        .flat_map(|x| x.iter()),
-    );
+    data.extend(field.as_bytes());
+    data.push(b'\n');
+    data.extend(&(payload.len() as u64).to_le_bytes());
+    data.extend(payload.as_bytes());
+    data.push(b'\n');
 }
 
 /// Add  a journal `field` and its `payload` to journal fields `data` with appropriate encoding.
@@ -145,11 +139,10 @@ fn add_field_and_payload(data: &mut Vec<u8>, field: &str, payload: &str) {
             add_field_and_payload_explicit_length(data, field, payload);
         } else {
             // If payload doesn't contain an newline directly write the field name and the payload
-            data.extend(
-                [field.as_bytes(), b"=", payload.as_bytes(), b"\n"]
-                    .iter()
-                    .flat_map(|x| x.iter()),
-            );
+            data.extend(field.as_bytes());
+            data.push(b'=');
+            data.extend(payload.as_bytes());
+            data.push(b'\n');
         }
     }
 }
@@ -171,7 +164,7 @@ where
         .context("failed to open datagram socket")?;
 
     let mut data = Vec::new();
-    add_field_and_payload(&mut data, "PRIORITY", priority.as_str());
+    add_field_and_payload(&mut data, "PRIORITY", priority.numeric_level());
     add_field_and_payload(&mut data, "MESSAGE", msg);
     for (ref k, ref v) in vars {
         if k.as_ref() != "PRIORITY" && k.as_ref() != "MESSAGE" {
@@ -365,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn test_priority_as_str_matches_to_string() {
+    fn test_priority_numeric_level_matches_to_string() {
         let priorities = [
             Priority::Emergency,
             Priority::Alert,
@@ -378,7 +371,7 @@ mod tests {
         ];
 
         for priority in &priorities {
-            assert_eq!(&(u8::from(priority.clone())).to_string(), priority.as_str());
+            assert_eq!(&(u8::from(*priority)).to_string(), priority.numeric_level());
         }
     }
 
