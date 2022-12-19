@@ -1,4 +1,4 @@
-use crate::errors::SdError;
+use crate::errors::{Context, SdError};
 use nix::fcntl::*;
 use nix::sys::memfd::memfd_create;
 use nix::sys::memfd::MemFdCreateFlag;
@@ -144,9 +144,9 @@ where
     K: AsRef<str>,
     V: AsRef<str>,
 {
-    let sock = SD_SOCK.get_or_try_init(|| {
-        UnixDatagram::unbound().map_err(|e| format!("failed to open datagram socket: {}", e))
-    })?;
+    let sock = SD_SOCK
+        .get_or_try_init(UnixDatagram::unbound)
+        .context("failed to open datagram socket")?;
 
     let mut data = Vec::new();
     add_field_and_payload(&mut data, "PRIORITY", &(u8::from(priority)).to_string());
@@ -163,21 +163,18 @@ where
     //
     // Maximum data size is system dependent, thus this always tries the fast path and
     // falls back to the slow path if the former fails with `EMSGSIZE`.
-    let fast_res = sock.send_to(&data, SD_JOURNAL_SOCK_PATH);
-    let res = match fast_res {
+    match sock.send_to(&data, SD_JOURNAL_SOCK_PATH) {
+        Ok(x) => Ok(x),
         // `EMSGSIZE` (errno code 90) means the message was too long for a UNIX socket,
-        Err(ref err) if err.raw_os_error() == Some(90) => send_memfd_payload(sock, &data),
-        r => r.map_err(|err| err.to_string().into()),
-    };
-
-    res.map_err(|e| {
-        format!(
-            "failed to print to journal at '{}': {}",
-            SD_JOURNAL_SOCK_PATH, e
-        )
-    })?;
-    Ok(())
+        Err(ref err) if err.raw_os_error() == Some(90) => {
+            send_memfd_payload(sock, &data).context("sending with memfd failed")
+        }
+        Err(e) => Err(e).context("send_to failed"),
+    }
+    .map(|_| ())
+    .with_context(|| format!("failed to print to journal at '{}'", SD_JOURNAL_SOCK_PATH))
 }
+
 /// Print a message to the journal with the given priority.
 pub fn journal_print(priority: Priority, msg: &str) -> Result<(), SdError> {
     let map: HashMap<&str, &str> = HashMap::new();
@@ -191,22 +188,23 @@ pub fn journal_print(priority: Priority, msg: &str) -> Result<(), SdError> {
 /// data.
 fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError> {
     let memfd = {
-        let fdname = &CString::new("libsystemd-rs-logging").map_err(|e| e.to_string())?;
-        let tmpfd =
-            memfd_create(fdname, MemFdCreateFlag::MFD_ALLOW_SEALING).map_err(|e| e.to_string())?;
+        let fdname = &CString::new("libsystemd-rs-logging").context("unable to create cstring")?;
+        let tmpfd = memfd_create(fdname, MemFdCreateFlag::MFD_ALLOW_SEALING)
+            .context("unable to create memfd")?;
 
         // SAFETY: `memfd_create` just returned this FD.
         let mut file = unsafe { File::from_raw_fd(tmpfd) };
-        file.write_all(data).map_err(|e| e.to_string())?;
+        file.write_all(data).context("failed to write to memfd")?;
         file
     };
 
     // Seal the memfd, so that journald knows it can safely mmap/read it.
-    fcntl(memfd.as_raw_fd(), FcntlArg::F_ADD_SEALS(SealFlag::all())).map_err(|e| e.to_string())?;
+    fcntl(memfd.as_raw_fd(), FcntlArg::F_ADD_SEALS(SealFlag::all()))
+        .context("unable to seal memfd")?;
 
     let fds = &[memfd.as_raw_fd()];
     let ancillary = [ControlMessage::ScmRights(fds)];
-    let path = UnixAddr::new(SD_JOURNAL_SOCK_PATH).map_err(|e| e.to_string())?;
+    let path = UnixAddr::new(SD_JOURNAL_SOCK_PATH).context("unable to create new unix address")?;
     sendmsg(
         sock.as_raw_fd(),
         &[],
@@ -214,7 +212,7 @@ fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError
         MsgFlags::empty(),
         Some(&path),
     )
-    .map_err(|e| e.to_string())?;
+    .context("sendmsg failed")?;
 
     // Close our side of the memfd after we send it to systemd.
     drop(memfd);
@@ -236,28 +234,31 @@ impl JournalStream {
     ///
     /// See also [`JournalStream::from_env()`].
     pub(crate) fn parse<S: AsRef<OsStr>>(value: S) -> Result<Self, SdError> {
-        let s = value.as_ref().to_str().ok_or_else(|| {
+        let s = value.as_ref().to_str().with_context(|| {
             format!(
                 "Failed to parse journal stream: Value {:?} not UTF-8 encoded",
                 value.as_ref()
             )
         })?;
-        let (device_s, inode_s) = s.find(':').map(|i| (&s[..i], &s[i + 1..])).ok_or_else(|| {
+        let (device_s, inode_s) =
+            s.find(':')
+                .map(|i| (&s[..i], &s[i + 1..]))
+                .with_context(|| {
+                    format!(
+                        "Failed to parse journal stream: Missing separator ':' in value '{}'",
+                        s
+                    )
+                })?;
+        let device = u64::from_str(device_s).with_context(|| {
             format!(
-                "Failed to parse journal stream: Missing separator ':' in value '{}'",
-                s
+                "Failed to parse journal stream: Device part is not a number '{}'",
+                device_s
             )
         })?;
-        let device = u64::from_str(device_s).map_err(|err| {
+        let inode = u64::from_str(inode_s).with_context(|| {
             format!(
-                "Failed to parse journal stream: Device part is not a number '{}': {}",
-                device_s, err
-            )
-        })?;
-        let inode = u64::from_str(inode_s).map_err(|err| {
-            format!(
-                "Failed to parse journal stream: Inode part is not a number '{}': {}",
-                inode_s, err
+                "Failed to parse journal stream: Inode part is not a number '{}'",
+                inode_s
             )
         })?;
         Ok(JournalStream { device, inode })
@@ -265,7 +266,7 @@ impl JournalStream {
 
     /// Parse the device and inode number of the systemd journal stream denoted by the given environment variable.
     pub(crate) fn from_env_impl<S: AsRef<OsStr>>(key: S) -> Result<Self, SdError> {
-        Self::parse(std::env::var_os(&key).ok_or_else(|| {
+        Self::parse(std::env::var_os(&key).with_context(|| {
             format!(
                 "Failed to parse journal stream: Environment variable {:?} unset",
                 key.as_ref()
