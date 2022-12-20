@@ -118,9 +118,15 @@ fn is_valid_field(input: &str) -> bool {
 ///
 /// See <https://systemd.io/JOURNAL_NATIVE_PROTOCOL/> for details.
 fn add_field_and_payload_explicit_length(data: &mut Vec<u8>, field: &str, payload: &str) {
+    let encoded_len = (payload.len() as u64).to_le_bytes();
+
+    // Bump the capacity to avoid multiple allocations during the extend/push calls.  The 2 is for
+    // the newline characters.
+    data.reserve(field.len() + encoded_len.len() + payload.len() + 2);
+
     data.extend(field.as_bytes());
     data.push(b'\n');
-    data.extend(&(payload.len() as u64).to_le_bytes());
+    data.extend(encoded_len);
     data.extend(payload.as_bytes());
     data.push(b'\n');
 }
@@ -138,7 +144,11 @@ fn add_field_and_payload(data: &mut Vec<u8>, field: &str, payload: &str) {
         if payload.contains('\n') {
             add_field_and_payload_explicit_length(data, field, payload);
         } else {
-            // If payload doesn't contain an newline directly write the field name and the payload
+            // If payload doesn't contain an newline directly write the field name and the payload.
+            // Bump the capacity to avoid multiple allocations during extend/push calls.  The 2 is
+            // for the two pushed bytes.
+            data.reserve(field.len() + payload.len() + 2);
+
             data.extend(field.as_bytes());
             data.push(b'=');
             data.extend(payload.as_bytes());
@@ -370,8 +380,8 @@ mod tests {
             Priority::Debug,
         ];
 
-        for priority in &priorities {
-            assert_eq!(&(u8::from(*priority)).to_string(), priority.numeric_level());
+        for priority in priorities.into_iter() {
+            assert_eq!(&(u8::from(priority)).to_string(), priority.numeric_level());
         }
     }
 
