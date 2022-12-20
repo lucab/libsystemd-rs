@@ -60,6 +60,21 @@ impl std::convert::From<Priority> for u8 {
     }
 }
 
+impl Priority {
+    fn numeric_level(&self) -> &str {
+        match self {
+            Priority::Emergency => "0",
+            Priority::Alert => "1",
+            Priority::Critical => "2",
+            Priority::Error => "3",
+            Priority::Warning => "4",
+            Priority::Notice => "5",
+            Priority::Info => "6",
+            Priority::Debug => "7",
+        }
+    }
+}
+
 #[inline(always)]
 fn is_valid_char(c: char) -> bool {
     c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'
@@ -103,9 +118,15 @@ fn is_valid_field(input: &str) -> bool {
 ///
 /// See <https://systemd.io/JOURNAL_NATIVE_PROTOCOL/> for details.
 fn add_field_and_payload_explicit_length(data: &mut Vec<u8>, field: &str, payload: &str) {
+    let encoded_len = (payload.len() as u64).to_le_bytes();
+
+    // Bump the capacity to avoid multiple allocations during the extend/push calls.  The 2 is for
+    // the newline characters.
+    data.reserve(field.len() + encoded_len.len() + payload.len() + 2);
+
     data.extend(field.as_bytes());
     data.push(b'\n');
-    data.extend(&(payload.len() as u64).to_le_bytes());
+    data.extend(encoded_len);
     data.extend(payload.as_bytes());
     data.push(b'\n');
 }
@@ -123,7 +144,11 @@ fn add_field_and_payload(data: &mut Vec<u8>, field: &str, payload: &str) {
         if payload.contains('\n') {
             add_field_and_payload_explicit_length(data, field, payload);
         } else {
-            // If payload doesn't contain an newline directly write the field name and the payload
+            // If payload doesn't contain an newline directly write the field name and the payload.
+            // Bump the capacity to avoid multiple allocations during extend/push calls.  The 2 is
+            // for the two pushed bytes.
+            data.reserve(field.len() + payload.len() + 2);
+
             data.extend(field.as_bytes());
             data.push(b'=');
             data.extend(payload.as_bytes());
@@ -149,7 +174,7 @@ where
         .context("failed to open datagram socket")?;
 
     let mut data = Vec::new();
-    add_field_and_payload(&mut data, "PRIORITY", &(u8::from(priority)).to_string());
+    add_field_and_payload(&mut data, "PRIORITY", priority.numeric_level());
     add_field_and_payload(&mut data, "MESSAGE", msg);
     for (ref k, ref v) in vars {
         if k.as_ref() != "PRIORITY" && k.as_ref() != "MESSAGE" {
@@ -339,6 +364,24 @@ mod tests {
                 );
                 false
             }
+        }
+    }
+
+    #[test]
+    fn test_priority_numeric_level_matches_to_string() {
+        let priorities = [
+            Priority::Emergency,
+            Priority::Alert,
+            Priority::Critical,
+            Priority::Error,
+            Priority::Warning,
+            Priority::Notice,
+            Priority::Info,
+            Priority::Debug,
+        ];
+
+        for priority in priorities.into_iter() {
+            assert_eq!(&(u8::from(priority)).to_string(), priority.numeric_level());
         }
     }
 
