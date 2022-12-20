@@ -45,7 +45,6 @@ harness = false
 [package.metadata.release]
 publish = false
 push = false
-post-release-commit-message = "cargo: development version bump"
 pre-release-commit-message = "cargo: libsystemd release {{version}}"
 sign-commit = true
 sign-tag = true
