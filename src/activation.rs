@@ -1,4 +1,4 @@
-use crate::errors::SdError;
+use crate::errors::{Context, SdError};
 use nix::sys::socket::getsockname;
 use nix::sys::socket::{AddressFamily, SockaddrLike, SockaddrStorage};
 use nix::sys::stat::fstat;
@@ -90,13 +90,13 @@ pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>, SdErr
     }
 
     let pid = pid
-        .map_err(|e| format!("failed to get LISTEN_PID: {}", e))?
+        .context("failed to get LISTEN_PID")?
         .parse::<u32>()
-        .map_err(|e| format!("failed to parse LISTEN_PID: {}", e))?;
+        .context("failed to parse LISTEN_PID")?;
     let fds = fds
-        .map_err(|e| format!("failed to get LISTEN_FDS: {}", e))?
+        .context("failed to get LISTEN_FDS")?
         .parse::<usize>()
-        .map_err(|e| format!("failed to parse LISTEN_FDS: {}", e))?;
+        .context("failed to parse LISTEN_FDS")?;
 
     if process::id() != pid {
         return Err("PID mismatch".into());
@@ -129,21 +129,21 @@ pub fn receive_descriptors_with_names(
     }
 
     let pid = pid
-        .map_err(|e| format!("failed to get LISTEN_PID: {}", e))?
+        .context("failed to get LISTEN_PID")?
         .parse::<u32>()
-        .map_err(|e| format!("failed to parse LISTEN_PID: {}", e))?;
+        .context("failed to parse LISTEN_PID")?;
     let fds = fds
-        .map_err(|e| format!("failed to get LISTEN_FDS: {}", e))?
+        .context("failed to get LISTEN_FDS")?
         .parse::<usize>()
-        .map_err(|e| format!("failed to parse LISTEN_FDS: {}", e))?;
+        .context("failed to parse LISTEN_FDS")?;
 
     if process::id() != pid {
         return Err("PID mismatch".into());
     }
 
-    let fdnames = fdnames.map_err(|e| format!("failed to get LISTEN_FDNAMES: {}", e))?;
+    let fdnames = fdnames.context("failed to get LISTEN_FDNAMES")?;
     let names = fdnames.split(':').map(String::from);
-    let vec = socks_from_fds(fds)?;
+    let vec = socks_from_fds(fds).context("failed to get sockets from file descriptor")?;
     let out = vec.into_iter().zip(names).collect();
 
     Ok(out)
@@ -154,7 +154,7 @@ fn socks_from_fds(num_fds: usize) -> Result<Vec<FileDescriptor>, SdError> {
     for fd_offset in 0..num_fds {
         let index = SD_LISTEN_FDS_START
             .checked_add(fd_offset as i32)
-            .ok_or_else(|| format!("overlarge file descriptor index: {}", num_fds))?;
+            .with_context(|| format!("overlarge file descriptor index: {}", num_fds))?;
         let fd = FileDescriptor::try_from(index).unwrap_or_else(|(msg, val)| {
             log::warn!("{}", msg);
             FileDescriptor(SocketFd::Unknown(val))
