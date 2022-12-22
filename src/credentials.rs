@@ -1,4 +1,4 @@
-use crate::errors::SdError;
+use crate::errors::{Context, SdError};
 use nix::dir;
 use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
@@ -30,14 +30,7 @@ impl CredentialsLoader {
         // that we know it exists. We don't further use it now, but in the
         // future we may couple it to something like 'cap-std' helpers.
         let _dirfd = dir::Dir::open(&path, OFlag::O_RDONLY | OFlag::O_DIRECTORY, Mode::empty())
-            .map_err(|e| {
-                let msg = format!(
-                    "Opening credentials directory at '{}': {}",
-                    path.display(),
-                    e
-                );
-                SdError::from(msg)
-            })?;
+            .with_context(|| format!("Opening credentials directory at '{}'", path.display()))?;
 
         let loader = Self { path, _dirfd };
         Ok(loader)
@@ -93,13 +86,7 @@ impl CredentialsLoader {
     /// }
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     pub fn iter(&self) -> Result<std::fs::ReadDir, SdError> {
-        std::fs::read_dir(&self.path).map_err(|e| {
-            let msg = format!(
-                "Opening credential directory at {}: {}",
-                self.path.display(),
-                e
-            );
-            SdError::from(msg)
-        })
+        std::fs::read_dir(&self.path)
+            .with_context(|| format!("Opening credential directory at {}", self.path.display()))
     }
 }
