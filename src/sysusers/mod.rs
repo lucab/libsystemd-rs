@@ -40,7 +40,7 @@
 //! ```
 
 pub(crate) use self::serialization::SysusersData;
-use crate::errors::SdError;
+use crate::errors::{Context, SdError};
 pub use parse::parse_from_reader;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -370,12 +370,12 @@ impl FromStr for IdOrPath {
         }
         let tokens: Vec<_> = value.split(':').filter(|s| !s.is_empty()).collect();
         if tokens.len() == 2 {
-            let uid: u32 = tokens[0].parse().map_err(|_| "invalid user id")?;
+            let uid: u32 = tokens[0].parse().context("invalid user id")?;
             let id = match tokens[1].parse() {
                 Ok(gid) => IdOrPath::UidGid((uid, gid)),
                 _ => {
                     let groupname = tokens[1].to_string();
-                    validate_name_strict(&groupname)?;
+                    validate_name_strict(&groupname).context("name failed validation")?;
                     IdOrPath::UidGroupname((uid, groupname))
                 }
             };
