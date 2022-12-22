@@ -1,4 +1,4 @@
-use crate::errors::SdError;
+use crate::errors::{Context, SdError};
 use libc::pid_t;
 use nix::sys::socket;
 use nix::unistd;
@@ -93,9 +93,9 @@ pub fn notify_with_fds(
     // is understood as Linux abstract namespace socket.
     let socket_addr = match env_sock.strip_prefix('@') {
         Some(stripped_addr) => socket::UnixAddr::new_abstract(stripped_addr.as_bytes())
-            .map_err(|e| format!("invalid Unix socket abstract address {}: {}", env_sock, e))?,
+            .with_context(|| format!("invalid Unix socket abstract address {}", env_sock))?,
         None => socket::UnixAddr::new(env_sock.as_str())
-            .map_err(|e| format!("invalid Unix socket path address {}: {}", env_sock, e))?,
+            .with_context(|| format!("invalid Unix socket path address {}", env_sock))?,
     };
 
     let sock_fd = socket::socket(
@@ -104,7 +104,7 @@ pub fn notify_with_fds(
         socket::SockFlag::empty(),
         None,
     )
-    .map_err(|e| format!("failed to open Unix datagram socket: {}", e))?;
+    .context("failed to open Unix datagram socket")?;
 
     let msg = state
         .iter()
@@ -126,12 +126,8 @@ pub fn notify_with_fds(
         socket::MsgFlags::empty(),
         Some(&socket_addr),
     )
-    .map_err(|e| {
-        format!(
-            "failed to send notify datagram: {}",
-            io::Error::from_raw_os_error(e as i32)
-        )
-    })?;
+    .map_err(|e| io::Error::from_raw_os_error(e as i32))
+    .context("failed to send notify datagram")?;
 
     if sent_len != msg_len {
         return Err(format!(
@@ -207,7 +203,7 @@ fn sanity_check_state_entries(state: &[NotifyState]) -> Result<(), SdError> {
             NotifyState::Fdname(ref name) => validate_fdname(name),
             _ => Ok(()),
         }
-        .map_err(|e| format!("invalid notify state entry #{}: {}", index, e))?;
+        .with_context(|| format!("invalid notify state entry #{}", index))?;
     }
 
     Ok(())
