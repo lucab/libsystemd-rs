@@ -1,4 +1,4 @@
-use crate::errors::SdError;
+use crate::errors::{Context, SdError};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::{fmt, fs};
@@ -15,8 +15,7 @@ pub struct Id128 {
 impl Id128 {
     /// Build an `Id128` from a slice of bytes.
     pub fn try_from_slice(bytes: &[u8]) -> Result<Self, SdError> {
-        let uuid_v4 = Uuid::from_slice(bytes)
-            .map_err(|e| format!("failed to parse ID from bytes slice: {}", e))?;
+        let uuid_v4 = Uuid::from_slice(bytes).context("failed to parse ID from bytes slice")?;
 
         // TODO(lucab): check for v4.
         Ok(Self { uuid_v4 })
@@ -27,8 +26,7 @@ impl Id128 {
     where
         S: AsRef<str>,
     {
-        let uuid_v4 = Uuid::parse_str(input.as_ref())
-            .map_err(|e| format!("failed to parse ID from string: {}", e))?;
+        let uuid_v4 = Uuid::parse_str(input.as_ref()).context("failed to parse ID from string")?;
 
         // TODO(lucab): check for v4.
         Ok(Self { uuid_v4 })
@@ -92,10 +90,9 @@ impl fmt::Debug for Id128 {
 /// Return this machine unique ID.
 pub fn get_machine() -> Result<Id128, SdError> {
     let mut buf = String::new();
-    let mut fd = fs::File::open("/etc/machine-id")
-        .map_err(|e| format!("failed to open machine-id: {}", e))?;
+    let mut fd = fs::File::open("/etc/machine-id").context("failed to open machine-id")?;
     fd.read_to_string(&mut buf)
-        .map_err(|e| format!("failed to read machine-id: {}", e))?;
+        .context("failed to read machine-id")?;
     Id128::parse_str(buf.trim_end())
 }
 
@@ -108,10 +105,10 @@ pub fn get_machine_app_specific(app_id: &Id128) -> Result<Id128, SdError> {
 /// Return the unique ID of this boot.
 pub fn get_boot() -> Result<Id128, SdError> {
     let mut buf = String::new();
-    let mut fd = fs::File::open("/proc/sys/kernel/random/boot_id")
-        .map_err(|e| format!("failed to open boot_id: {}", e))?;
+    let mut fd =
+        fs::File::open("/proc/sys/kernel/random/boot_id").context("failed to open boot_id")?;
     fd.read_to_string(&mut buf)
-        .map_err(|e| format!("failed to read boot_id: {}", e))?;
+        .context("failed to read boot_id")?;
     Id128::parse_str(buf.trim_end())
 }
 
