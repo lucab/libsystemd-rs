@@ -19,6 +19,10 @@ pub static SD_JOURNAL_SOCK_PATH: &str = "/run/systemd/journal/socket";
 /// The shared socket to journald.
 static SD_SOCK: OnceCell<UnixDatagram> = OnceCell::new();
 
+/// Well-known field names.  Their validity is covered in tests.
+const PRIORITY: ValidField = ValidField::unchecked("PRIORITY");
+const MESSAGE: ValidField = ValidField::unchecked("MESSAGE");
+
 /// Trait for checking the type of a file descriptor.
 
 /// Log priority values.
@@ -104,6 +108,50 @@ fn is_valid_field(input: &str) -> bool {
     input.chars().all(is_valid_char)
 }
 
+/// A helper for functions that want to take fields as parameters that have already been validated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ValidField<'a> {
+    field: &'a str,
+}
+
+impl<'a> ValidField<'a> {
+    /// The field value is checked by [[`is_valid_field`]] and a ValidField is returned if true.
+    fn validate(field: &'a str) -> Option<Self> {
+        if is_valid_field(field) {
+            Some(Self { field })
+        } else {
+            None
+        }
+    }
+
+    /// Allows for the construction of a potentially invalid ValidField.
+    ///
+    /// Since [[`ValidField::is_valid_field`]] cannot reasonably be const, this allows for the
+    /// construction of known valid field names at compile time.  It's expected that the validity is
+    /// confirmed in tests by [[`ValidField::validate_unchecked`]].
+    const fn unchecked(field: &'a str) -> Self {
+        Self { field }
+    }
+
+    /// Converts to a byte slice.
+    fn as_bytes(&self) -> &'a [u8] {
+        self.field.as_bytes()
+    }
+
+    /// Returns the length in bytes.
+    fn len(&self) -> usize {
+        self.field.len()
+    }
+
+    /// Validates an object created using [[`ValidField::unchecked`]].
+    ///
+    /// Every unchecked field should have a corresponding test that calls this.
+    #[cfg(test)]
+    fn validate_unchecked(&self) -> bool {
+        is_valid_field(self.field)
+    }
+}
+
 /// Add `field` and `payload` to journal fields `data` with explicit length encoding.
 ///
 /// Write
@@ -117,7 +165,7 @@ fn is_valid_field(input: &str) -> bool {
 /// to `data`.
 ///
 /// See <https://systemd.io/JOURNAL_NATIVE_PROTOCOL/> for details.
-fn add_field_and_payload_explicit_length(data: &mut Vec<u8>, field: &str, payload: &str) {
+fn add_field_and_payload_explicit_length(data: &mut Vec<u8>, field: ValidField, payload: &str) {
     let encoded_len = (payload.len() as u64).to_le_bytes();
 
     // Bump the capacity to avoid multiple allocations during the extend/push calls.  The 2 is for
@@ -139,21 +187,19 @@ fn add_field_and_payload_explicit_length(data: &mut Vec<u8>, field: &str, payloa
 /// Otherwise encode the payload length explicitly with [[`add_field_and_payload_explicit_length`]].
 ///
 /// See <https://systemd.io/JOURNAL_NATIVE_PROTOCOL/> for details.
-fn add_field_and_payload(data: &mut Vec<u8>, field: &str, payload: &str) {
-    if is_valid_field(field) {
-        if payload.contains('\n') {
-            add_field_and_payload_explicit_length(data, field, payload);
-        } else {
-            // If payload doesn't contain an newline directly write the field name and the payload.
-            // Bump the capacity to avoid multiple allocations during extend/push calls.  The 2 is
-            // for the two pushed bytes.
-            data.reserve(field.len() + payload.len() + 2);
+fn add_field_and_payload(data: &mut Vec<u8>, field: ValidField, payload: &str) {
+    if payload.contains('\n') {
+        add_field_and_payload_explicit_length(data, field, payload);
+    } else {
+        // If payload doesn't contain an newline directly write the field name and the payload. Bump
+        // the capacity to avoid multiple allocations during extend/push calls.  The 2 is for the
+        // two pushed bytes.
+        data.reserve(field.len() + payload.len() + 2);
 
-            data.extend(field.as_bytes());
-            data.push(b'=');
-            data.extend(payload.as_bytes());
-            data.push(b'\n');
-        }
+        data.extend(field.as_bytes());
+        data.push(b'=');
+        data.extend(payload.as_bytes());
+        data.push(b'\n');
     }
 }
 
@@ -174,11 +220,13 @@ where
         .context("failed to open datagram socket")?;
 
     let mut data = Vec::new();
-    add_field_and_payload(&mut data, "PRIORITY", priority.numeric_level());
-    add_field_and_payload(&mut data, "MESSAGE", msg);
+    add_field_and_payload(&mut data, PRIORITY, priority.numeric_level());
+    add_field_and_payload(&mut data, MESSAGE, msg);
     for (ref k, ref v) in vars {
-        if k.as_ref() != "PRIORITY" && k.as_ref() != "MESSAGE" {
-            add_field_and_payload(&mut data, k.as_ref(), v.as_ref())
+        if let Some(field) = ValidField::validate(k.as_ref()) {
+            if field != PRIORITY && field != MESSAGE {
+                add_field_and_payload(&mut data, field, v.as_ref())
+            }
         }
     }
 
@@ -367,6 +415,8 @@ mod tests {
         }
     }
 
+    const FOO: ValidField = ValidField::unchecked("FOO");
+
     #[test]
     fn test_priority_numeric_level_matches_to_string() {
         let priorities = [
@@ -430,44 +480,55 @@ mod tests {
     }
 
     #[test]
+    fn test_predeclared_fields_are_valid() {
+        assert!(PRIORITY.validate_unchecked());
+        assert!(MESSAGE.validate_unchecked());
+        assert!(FOO.validate_unchecked());
+    }
+
+    #[test]
     fn test_is_valid_field_lowercase_invalid() {
         let field = "test";
-        assert_eq!(is_valid_field(&field), false);
+        assert!(ValidField::validate(field).is_none());
     }
 
     #[test]
     fn test_is_valid_field_uppercase_non_ascii_invalid() {
         let field = "TRÖT";
-        assert_eq!(is_valid_field(&field), false);
+        assert!(ValidField::validate(field).is_none());
     }
 
     #[test]
     fn test_is_valid_field_uppercase_valid() {
         let field = "TEST";
-        assert_eq!(is_valid_field(&field), true);
+        assert_eq!(
+            ValidField::validate(field).unwrap().as_bytes(),
+            field.as_bytes()
+        );
     }
 
     #[test]
     fn test_is_valid_field_uppercase_non_alpha_invalid() {
         let field = "TE!ST";
-        assert_eq!(is_valid_field(&field), false);
+        assert!(ValidField::validate(field).is_none());
     }
 
     #[test]
     fn test_is_valid_field_uppercase_leading_underscore_invalid() {
         let field = "_TEST";
-        assert_eq!(is_valid_field(&field), false);
+        assert!(ValidField::validate(field).is_none());
     }
 
     #[test]
     fn test_is_valid_field_uppercase_leading_digit_invalid() {
-        assert_eq!(is_valid_field("1TEST"), false);
+        let field = "1TEST";
+        assert!(ValidField::validate(field).is_none());
     }
 
     #[test]
     fn add_field_and_payload_explicit_length_simple() {
         let mut data = Vec::new();
-        add_field_and_payload_explicit_length(&mut data, "FOO", "BAR");
+        add_field_and_payload_explicit_length(&mut data, FOO, "BAR");
         assert_eq!(
             data,
             vec![b'F', b'O', b'O', b'\n', 3, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n']
@@ -477,7 +538,7 @@ mod tests {
     #[test]
     fn add_field_and_payload_explicit_length_internal_newline() {
         let mut data = Vec::new();
-        add_field_and_payload_explicit_length(&mut data, "FOO", "B\nAR");
+        add_field_and_payload_explicit_length(&mut data, FOO, "B\nAR");
         assert_eq!(
             data,
             vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'\n', b'A', b'R', b'\n']
@@ -487,7 +548,7 @@ mod tests {
     #[test]
     fn add_field_and_payload_explicit_length_trailing_newline() {
         let mut data = Vec::new();
-        add_field_and_payload_explicit_length(&mut data, "FOO", "BAR\n");
+        add_field_and_payload_explicit_length(&mut data, FOO, "BAR\n");
         assert_eq!(
             data,
             vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n', b'\n']
@@ -497,14 +558,14 @@ mod tests {
     #[test]
     fn add_field_and_payload_simple() {
         let mut data = Vec::new();
-        add_field_and_payload(&mut data, "FOO", "BAR");
+        add_field_and_payload(&mut data, FOO, "BAR");
         assert_eq!(data, "FOO=BAR\n".as_bytes());
     }
 
     #[test]
     fn add_field_and_payload_internal_newline() {
         let mut data = Vec::new();
-        add_field_and_payload(&mut data, "FOO", "B\nAR");
+        add_field_and_payload(&mut data, FOO, "B\nAR");
         assert_eq!(
             data,
             vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'\n', b'A', b'R', b'\n']
@@ -514,7 +575,7 @@ mod tests {
     #[test]
     fn add_field_and_payload_trailing_newline() {
         let mut data = Vec::new();
-        add_field_and_payload(&mut data, "FOO", "BAR\n");
+        add_field_and_payload(&mut data, FOO, "BAR\n");
         assert_eq!(
             data,
             vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n', b'\n']
