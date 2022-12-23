@@ -386,7 +386,7 @@ impl JournalStream {
 /// Return `true` if they match, and `false` otherwise (or in case of any IO error).
 ///
 /// For services normally logging to stderr but also supporting systemd-style structured
-/// logging, it is recommended to perform this check and thenupgrade to the native systemd
+/// logging, it is recommended to perform this check and then upgrade to the native systemd
 /// journal protocol if possible.
 ///
 /// See section “Automatic Protocol Upgrading” in [systemd documentation][1] for more information.
