@@ -287,9 +287,6 @@ fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError
     )
     .context("sendmsg failed")?;
 
-    // Close our side of the memfd after we send it to systemd.
-    drop(memfd);
-
     Ok(data.len())
 }
 
