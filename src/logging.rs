@@ -236,6 +236,11 @@ where
     //
     // Maximum data size is system dependent, thus this always tries the fast path and
     // falls back to the slow path if the former fails with `EMSGSIZE`.
+    //
+    // An unconnected socket client-side is used to cope with journald restarts.  The native systemd
+    // C library does the same.  See:
+    //  * https://github.com/coreos/go-systemd/pull/279.
+    //  * https://github.com/coreos/go-systemd/pull/218#issuecomment-274490875.
     match sock.send_to(&data, SD_JOURNAL_SOCK_PATH) {
         Ok(x) => Ok(x),
         // `EMSGSIZE` (errno code 90) means the message was too long for a UNIX socket,
