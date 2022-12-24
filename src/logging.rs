@@ -5,7 +5,7 @@ use nix::sys::memfd::MemFdCreateFlag;
 use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, UnixAddr};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::ffi::{CString, OsStr};
+use std::ffi::{CStr, OsStr};
 use std::fs::{File, Metadata};
 use std::io::{self, Write};
 use std::os::linux::fs::MetadataExt;
@@ -254,28 +254,75 @@ pub fn journal_print(priority: Priority, msg: &str) -> Result<(), SdError> {
     journal_send(priority, msg, map.iter())
 }
 
+struct SealableMemFd {
+    file: std::fs::File,
+}
+
+impl SealableMemFd {
+    fn new<C>(name: C) -> Result<Self, SdError>
+    where
+        C: AsRef<CStr>,
+    {
+        let tmpfd = memfd_create(name.as_ref(), MemFdCreateFlag::MFD_ALLOW_SEALING)
+            .context("unable to create memfd")?;
+
+        // SAFETY: `memfd_create` just returned this FD.
+        let file = unsafe { File::from_raw_fd(tmpfd) };
+        Ok(Self { file })
+    }
+
+    fn seal(self) -> Result<SealedMemFd, SdError> {
+        fcntl(
+            self.file.as_raw_fd(),
+            FcntlArg::F_ADD_SEALS(SealFlag::all()),
+        )
+        .context("unable to seal memfd")?;
+        Ok(SealedMemFd { file: self.file })
+    }
+}
+
+impl std::io::Write for SealableMemFd {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.file.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        self.file.write_all(buf)
+    }
+}
+
+// Doesn't implement IntoRawFd to avoid leaking descriptors, since owners of RawFd are required to
+// manually close it, rather than it being handled by drop, as it is with File.  The APIs introduced
+// in rust 1.63 (unix::io::AsFd, unix::io::BorrowedFd<'fd>, and unix::io::OwnedFd) make this
+// relationship more clear, but it's not compatiable with nix, and MSRV is 1.56.
+struct SealedMemFd {
+    file: std::fs::File,
+}
+
+impl std::os::unix::io::AsRawFd for SealedMemFd {
+    fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
+        self.file.as_raw_fd()
+    }
+}
+
 /// Send an overlarge payload to systemd-journald socket.
 ///
 /// This is a slow-path for sending a large payload that could not otherwise fit
 /// in a UNIX datagram. Payload is thus written to a memfd, which is sent as ancillary
 /// data.
 fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError> {
-    let memfd = {
-        let fdname = &CString::new("libsystemd-rs-logging").context("unable to create cstring")?;
-        let tmpfd = memfd_create(fdname, MemFdCreateFlag::MFD_ALLOW_SEALING)
-            .context("unable to create memfd")?;
-
-        // SAFETY: `memfd_create` just returned this FD.
-        let mut file = unsafe { File::from_raw_fd(tmpfd) };
-        file.write_all(data).context("failed to write to memfd")?;
-        file
-    };
+    let fdname =
+        CStr::from_bytes_with_nul(b"libsystemd-rs-logging\0").context("unable to create cstr")?;
+    let mut memfd = SealableMemFd::new(fdname).context("creating memfd failed")?;
+    memfd.write_all(data).context("failed to write to memfd")?;
 
     // Seal the memfd, so that journald knows it can safely mmap/read it.
-    fcntl(memfd.as_raw_fd(), FcntlArg::F_ADD_SEALS(SealFlag::all()))
-        .context("unable to seal memfd")?;
+    let sealed = memfd.seal().context("unable to seal memfd")?;
 
-    let fds = &[memfd.as_raw_fd()];
+    let fds = &[sealed.as_raw_fd()];
     let ancillary = [ControlMessage::ScmRights(fds)];
     let path = UnixAddr::new(SD_JOURNAL_SOCK_PATH).context("unable to create new unix address")?;
     sendmsg(
