@@ -1,11 +1,12 @@
 use crate::errors::{Context, SdError};
 use serde::{Deserialize, Serialize};
+use std::hash::Hash;
 use std::io::Read;
 use std::{fmt, fs};
-use uuid::Uuid;
+use uuid::{Bytes, Uuid};
 
 /// A 128-bits ID.
-#[derive(Clone, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct Id128 {
     #[serde(flatten, serialize_with = "Id128::ser_uuid")]
@@ -19,6 +20,13 @@ impl Id128 {
 
         // TODO(lucab): check for v4.
         Ok(Self { uuid_v4 })
+    }
+
+    /// Build an `Id128` from 16 bytes
+    pub const fn from_bytes(bytes: Bytes) -> Self {
+        Self {
+            uuid_v4: Uuid::from_bytes(bytes),
+        }
     }
 
     /// Parse an `Id128` from string.
@@ -84,6 +92,12 @@ impl Id128 {
 impl fmt::Debug for Id128 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.dashed_hex())
+    }
+}
+
+impl From<Uuid> for Id128 {
+    fn from(uuid_v4: Uuid) -> Self {
+        Self { uuid_v4 }
     }
 }
 
@@ -158,6 +172,17 @@ mod test {
         assert_eq!(input_str, id.lower_hex());
 
         Id128::try_from_slice(&[]).unwrap_err();
+    }
+
+    #[test]
+    fn basic_from_bytes() {
+        let input_str = "d86a4e9e4dca45c5bcd9846409bfa1ae";
+        let input = [
+            0xd8, 0x6a, 0x4e, 0x9e, 0x4d, 0xca, 0x45, 0xc5, 0xbc, 0xd9, 0x84, 0x64, 0x09, 0xbf,
+            0xa1, 0xae,
+        ];
+        let id = Id128::from_bytes(input);
+        assert_eq!(input_str, id.lower_hex());
     }
 
     #[test]
