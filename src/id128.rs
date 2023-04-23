@@ -1,5 +1,6 @@
 use crate::errors::{Context, SdError};
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 use std::hash::Hash;
 use std::io::Read;
 use std::{fmt, fs};
@@ -66,7 +67,7 @@ impl Id128 {
     pub fn lower_hex(&self) -> String {
         let mut hex = String::new();
         for byte in self.uuid_v4.as_bytes() {
-            hex.push_str(&format!("{:02x}", byte));
+            write!(hex, "{byte:02x}").unwrap();
         }
         hex
     }
@@ -83,7 +84,7 @@ impl Id128 {
     {
         let mut hex = String::new();
         for byte in field.as_bytes() {
-            hex.push_str(&format!("{:02x}", byte));
+            write!(hex, "{byte:02x}").unwrap();
         }
         s.serialize_str(&hex)
     }

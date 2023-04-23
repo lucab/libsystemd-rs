@@ -85,7 +85,7 @@ impl SysusersEntry {
 }
 
 /// Sysusers entry of type `r`.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(try_from = "SysusersData")]
 pub struct AddRange {
     pub(crate) from: u32,
@@ -119,7 +119,7 @@ impl AddRange {
 }
 
 /// Sysusers entry of type `m`.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(try_from = "SysusersData")]
 pub struct AddUserToGroup {
     pub(crate) username: String,

@@ -106,7 +106,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     // Set environment so that the example will run instead.
-    .arg(format!("--setenv=RUN_EXAMPLE=1"))
+    .arg("--setenv=RUN_EXAMPLE=1")
     // Make sure the example can store a filedescriptor and can be purposefully restarted.
     .arg("-pFileDescriptorStoreMax=1")
     .arg("-pRestartForceExitStatus=2")

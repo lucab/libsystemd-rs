@@ -294,7 +294,7 @@ fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError
 }
 
 /// A systemd journal stream.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct JournalStream {
     /// The device number of the journal stream.
     device: u64,
