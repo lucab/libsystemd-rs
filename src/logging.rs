@@ -3,14 +3,17 @@ use nix::fcntl::*;
 use nix::sys::memfd::memfd_create;
 use nix::sys::memfd::MemFdCreateFlag;
 use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, UnixAddr};
+use nix::sys::stat::{fstat, FileStat};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::ffi::{CString, OsStr};
 use std::fs::{File, Metadata};
-use std::io::{self, Write};
+use std::io::prelude::*;
 use std::os::linux::fs::MetadataExt;
-use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixDatagram;
+use std::os::unix::prelude::AsFd;
+use std::os::unix::prelude::FromRawFd;
 use std::str::FromStr;
 
 /// Default path of the systemd-journald `AF_UNIX` datagram socket.
@@ -262,11 +265,11 @@ pub fn journal_print(priority: Priority, msg: &str) -> Result<(), SdError> {
 fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError> {
     let memfd = {
         let fdname = &CString::new("libsystemd-rs-logging").context("unable to create cstring")?;
-        let tmpfd = memfd_create(fdname, MemFdCreateFlag::MFD_ALLOW_SEALING)
+        let mut file = memfd_create(fdname, MemFdCreateFlag::MFD_ALLOW_SEALING)
+            // SAFETY: `memfd_create` just returned this FD, so we own it now.
+            .map(|fd| unsafe { File::from_raw_fd(fd) })
             .context("unable to create memfd")?;
 
-        // SAFETY: `memfd_create` just returned this FD.
-        let mut file = unsafe { File::from_raw_fd(tmpfd) };
         file.write_all(data).context("failed to write to memfd")?;
         file
     };
@@ -368,13 +371,19 @@ impl JournalStream {
     /// Get the journal stream that would correspond to the given file descriptor.
     ///
     /// Return a journal stream struct containing the device and inode number of the given file descriptor.
-    pub fn from_fd<F: AsRawFd>(fd: F) -> std::io::Result<Self> {
-        // SAFETY: We do claim ownership of the file descriptor here, but we move it back out down below.
-        let file = unsafe { std::fs::File::from_raw_fd(fd.as_raw_fd()) };
-        let stream = file.metadata().map(|m| Self::from_metadata(&m));
-        // Move the file descriptor back out of `file` to make sure the caller of this function retains ownership.
-        let _ = file.into_raw_fd();
-        stream
+    pub fn from_fd<F: AsFd>(fd: F) -> std::io::Result<Self> {
+        fstat(fd.as_fd().as_raw_fd())
+            .map_err(Into::into)
+            .map(Into::into)
+    }
+}
+
+impl From<FileStat> for JournalStream {
+    fn from(stat: FileStat) -> Self {
+        Self {
+            device: stat.st_dev,
+            inode: stat.st_ino,
+        }
     }
 }
 
@@ -394,7 +403,7 @@ impl JournalStream {
 /// [1]: https://systemd.io/JOURNAL_NATIVE_PROTOCOL/#automatic-protocol-upgrading
 pub fn connected_to_journal() -> bool {
     JournalStream::from_env().map_or(false, |env_stream| {
-        JournalStream::from_fd(io::stderr()).map_or(false, |o| o == env_stream)
+        JournalStream::from_fd(std::io::stderr()).map_or(false, |o| o == env_stream)
     })
 }
 
@@ -586,7 +595,7 @@ mod tests {
     fn journal_stream_from_fd_does_not_claim_ownership_of_fd() {
         // Just get hold of some open file which we know exists and can be read by the current user.
         let file = File::open(file!()).unwrap();
-        let journal_stream = JournalStream::from_fd(file.as_raw_fd()).unwrap();
+        let journal_stream = JournalStream::from_fd(&file).unwrap();
         assert_ne!(journal_stream.device, 0);
         assert_ne!(journal_stream.inode, 0);
         // Easy way to check if a file descriptor is still open, see https://stackoverflow.com/a/12340730/355252
