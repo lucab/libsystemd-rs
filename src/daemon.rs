@@ -4,6 +4,8 @@ use nix::sys::socket;
 use nix::unistd;
 use std::io::{self, IoSlice};
 use std::os::unix::io::RawFd;
+use std::os::unix::net::UnixDatagram;
+use std::os::unix::prelude::AsRawFd;
 use std::{env, fmt, fs, time};
 
 /// Check for systemd presence at runtime.
@@ -98,14 +100,7 @@ pub fn notify_with_fds(
             .with_context(|| format!("invalid Unix socket path address {}", env_sock))?,
     };
 
-    let sock_fd = socket::socket(
-        socket::AddressFamily::Unix,
-        socket::SockType::Datagram,
-        socket::SockFlag::empty(),
-        None,
-    )
-    .context("failed to open Unix datagram socket")?;
-
+    let socket = UnixDatagram::unbound().context("failed to open Unix datagram socket")?;
     let msg = state
         .iter()
         .fold(String::new(), |res, s| res + &format!("{}\n", s))
@@ -120,7 +115,7 @@ pub fn notify_with_fds(
     };
 
     let sent_len = socket::sendmsg(
-        sock_fd,
+        socket.as_raw_fd(),
         &[msg_iov],
         &ancillary,
         socket::MsgFlags::empty(),

@@ -14,7 +14,7 @@ exclude = [
 ".travis.yml",
 ]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.63"
 
 [dependencies]
 hmac = "^0.12"
