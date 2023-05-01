@@ -1,12 +1,12 @@
 use crate::errors::{Context, SdError};
+use nix::errno::Errno;
 use nix::fcntl::*;
-use nix::sys::memfd::memfd_create;
 use nix::sys::memfd::MemFdCreateFlag;
 use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, UnixAddr};
 use nix::sys::stat::{fstat, FileStat};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::ffi::{CString, OsStr};
+use std::ffi::{CStr, CString, OsStr};
 use std::fs::{File, Metadata};
 use std::io::prelude::*;
 use std::os::linux::fs::MetadataExt;
@@ -14,6 +14,7 @@ use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixDatagram;
 use std::os::unix::prelude::AsFd;
 use std::os::unix::prelude::FromRawFd;
+use std::os::unix::prelude::RawFd;
 use std::str::FromStr;
 
 /// Default path of the systemd-journald `AF_UNIX` datagram socket.
@@ -257,6 +258,27 @@ pub fn journal_print(priority: Priority, msg: &str) -> Result<(), SdError> {
     journal_send(priority, msg, map.iter())
 }
 
+// Implementation of memfd_create() using a syscall instead of calling the libc
+// function.
+//
+// The memfd_create() function is only available in glibc >= 2.27 (and other
+// libc implementations). To support older versions of glibc, we perform a raw
+// syscall (this will fail in Linux < 3.17, where the syscall was not
+// available).
+//
+// nix::sys::memfd::memfd_create chooses at compile time between calling libc
+// and performing a syscall, since platforms such as Android and uclibc don't
+// have memfd_create() in libc. Here we always use the syscall.
+fn memfd_create(name: &CStr, flags: MemFdCreateFlag) -> Result<File, Errno> {
+    unsafe {
+        let res = libc::syscall(libc::SYS_memfd_create, name.as_ptr(), flags.bits());
+        Errno::result(res).map(|r| {
+            // SAFETY: `memfd_create` just returned this FD, so we own it now.
+            File::from_raw_fd(r as RawFd)
+        })
+    }
+}
+
 /// Send an overlarge payload to systemd-journald socket.
 ///
 /// This is a slow-path for sending a large payload that could not otherwise fit
@@ -266,8 +288,6 @@ fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError
     let memfd = {
         let fdname = &CString::new("libsystemd-rs-logging").context("unable to create cstring")?;
         let mut file = memfd_create(fdname, MemFdCreateFlag::MFD_ALLOW_SEALING)
-            // SAFETY: `memfd_create` just returned this FD, so we own it now.
-            .map(|fd| unsafe { File::from_raw_fd(fd) })
             .context("unable to create memfd")?;
 
         file.write_all(data).context("failed to write to memfd")?;
