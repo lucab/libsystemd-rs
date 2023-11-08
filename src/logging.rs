@@ -7,9 +7,8 @@ use nix::sys::stat::{fstat, FileStat};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, OsStr};
-use std::fs::{File, Metadata};
+use std::fs::File;
 use std::io::prelude::*;
-use std::os::linux::fs::MetadataExt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixDatagram;
 use std::os::unix::prelude::AsFd;
@@ -320,9 +319,9 @@ fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError
 #[derive(Debug, Eq, PartialEq)]
 pub struct JournalStream {
     /// The device number of the journal stream.
-    device: u64,
+    device: libc::dev_t,
     /// The inode number of the journal stream.
-    inode: u64,
+    inode: libc::ino_t,
 }
 
 impl JournalStream {
@@ -345,13 +344,13 @@ impl JournalStream {
                         s
                     )
                 })?;
-        let device = u64::from_str(device_s).with_context(|| {
+        let device = libc::dev_t::from_str(device_s).with_context(|| {
             format!(
                 "Failed to parse journal stream: Device part is not a number '{}'",
                 device_s
             )
         })?;
-        let inode = u64::from_str(inode_s).with_context(|| {
+        let inode = libc::ino_t::from_str(inode_s).with_context(|| {
             format!(
                 "Failed to parse journal stream: Inode part is not a number '{}'",
                 inode_s
@@ -376,16 +375,6 @@ impl JournalStream {
     /// numbers of the systemd journal stream, separated by `:`.
     pub fn from_env() -> Result<Self, SdError> {
         Self::from_env_impl("JOURNAL_STREAM")
-    }
-
-    /// Get the journal stream that would correspond to the given file metadata.
-    ///
-    /// Return a journal stream struct containing the device and inode number of the given file metadata.
-    pub fn from_metadata(metadata: &Metadata) -> Self {
-        Self {
-            device: metadata.st_dev(),
-            inode: metadata.st_ino(),
-        }
     }
 
     /// Get the journal stream that would correspond to the given file descriptor.
