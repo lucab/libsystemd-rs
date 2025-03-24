@@ -4,8 +4,6 @@ on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
-  # Minimum supported Rust version (MSRV)
-  ACTION_MSRV_TOOLCHAIN: '1.65.0'
   # Pinned toolchain for linting
   ACTION_LINTS_TOOLCHAIN: '1.65.0'
 
@@ -24,9 +22,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Extract MSRV
+        run: echo "ACTION_MSRV_TOOLCHAIN=$(grep 'rust-version' Cargo.toml | cut -d '"' -f2)" >> $GITHUB_ENV
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env['ACTION_MSRV_TOOLCHAIN']  }}
+      - run: cargo build --release
       - run: cargo test --release
   linting:
     name: "Lints, pinned toolchain"
