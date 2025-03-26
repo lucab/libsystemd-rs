@@ -14,13 +14,13 @@ exclude = [
 ".travis.yml",
 ]
 edition = "2021"
-rust-version = "1.65"
+rust-version = "1.69"
 
 [dependencies]
 hmac = "^0.12"
 libc = "^0.2"
 log = "^0.4"
-nix = { version = "^0.27", default-features = false, features = ["dir", "fs", "socket", "process", "uio"] }
+nix = { version = "^0.29", default-features = false, features = ["dir", "fs", "socket", "process", "uio"] }
 nom = "7"
 serde = { version = "^1.0.91", features = ["derive"] }
 sha2 = "^0.10"

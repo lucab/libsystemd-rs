@@ -5,7 +5,7 @@ on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
   # Pinned toolchain for linting
-  ACTION_LINTS_TOOLCHAIN: '1.65.0'
+  ACTION_LINTS_TOOLCHAIN: '1.69.0'
 
 jobs:
   tests-stable:
