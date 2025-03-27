@@ -5,7 +5,7 @@ use std::env::VarError;
 use std::process::Command;
 
 use pretty_assertions::assert_eq;
-use rand::distributions::Alphanumeric;
+use rand::distr::Alphanumeric;
 use rand::Rng;
 
 use libsystemd::logging::*;
@@ -14,7 +14,7 @@ fn random_target(prefix: &str) -> String {
     format!(
         "{}_{}",
         prefix,
-        rand::thread_rng()
+        rand::rng()
             .sample_iter(&Alphanumeric)
             .take(10)
             .map(char::from)

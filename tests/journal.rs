@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use libsystemd::logging::Priority;
-use rand::distributions::Alphanumeric;
+use rand::distr::Alphanumeric;
 use rand::Rng;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -10,7 +10,7 @@ fn random_name(prefix: &str) -> String {
     format!(
         "{}_{}",
         prefix,
-        rand::thread_rng()
+        rand::rng()
             .sample_iter(&Alphanumeric)
             .take(10)
             .map(char::from)
