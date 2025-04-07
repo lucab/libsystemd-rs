@@ -99,10 +99,10 @@ pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>, SdErr
         .context("failed to parse LISTEN_PID")?;
     let current_pid = process::id();
     if pid != current_pid {
-        log::warn!(
-            "PID mismatch, $LISTEN_PID is {} but current PID is {}",
+        log::info!(
+            "Ignoring systemd activation settings ($LISTEN_PID={}), not meant for current process (PID {}).",
             pid,
-            current_pid
+            current_pid,
         );
         return Ok(vec![]);
     }
@@ -152,8 +152,8 @@ pub fn receive_descriptors_with_names(
         .context("failed to parse LISTEN_PID")?;
     let current_pid = process::id();
     if pid != current_pid {
-        log::warn!(
-            "PID mismatch, $LISTEN_PID is {} but current PID is {}",
+        log::info!(
+            "Ignoring systemd activation settings ($LISTEN_PID={}), not meant for current process (PID {}).",
             pid,
             current_pid
         );
