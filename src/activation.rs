@@ -89,18 +89,32 @@ pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>, SdErr
         env::remove_var("LISTEN_FDNAMES");
     }
 
+    // Parse `$LISTEN_PID` if present.
+    if let Err(env::VarError::NotPresent) = pid {
+        return Ok(vec![]);
+    }
     let pid = pid
         .context("failed to get LISTEN_PID")?
         .parse::<u32>()
         .context("failed to parse LISTEN_PID")?;
+    let current_pid = process::id();
+    if pid != current_pid {
+        log::info!(
+            "Ignoring systemd activation settings ($LISTEN_PID={}), not meant for current process (PID {}).",
+            pid,
+            current_pid,
+        );
+        return Ok(vec![]);
+    }
+
+    // Parse `$LISTEN_FDS` if present.
+    if let Err(env::VarError::NotPresent) = fds {
+        return Ok(vec![]);
+    }
     let fds = fds
         .context("failed to get LISTEN_FDS")?
         .parse::<usize>()
         .context("failed to parse LISTEN_FDS")?;
-
-    if process::id() != pid {
-        return Err("PID mismatch".into());
-    }
 
     socks_from_fds(fds)
 }
@@ -128,21 +142,40 @@ pub fn receive_descriptors_with_names(
         env::remove_var("LISTEN_FDNAMES");
     }
 
+    // Parse `$LISTEN_PID` if present.
+    if let Err(env::VarError::NotPresent) = pid {
+        return Ok(vec![]);
+    }
     let pid = pid
         .context("failed to get LISTEN_PID")?
         .parse::<u32>()
         .context("failed to parse LISTEN_PID")?;
+    let current_pid = process::id();
+    if pid != current_pid {
+        log::info!(
+            "Ignoring systemd activation settings ($LISTEN_PID={}), not meant for current process (PID {}).",
+            pid,
+            current_pid
+        );
+        return Ok(vec![]);
+    }
+
+    // Parse `$LISTEN_FDS` if present.
+    if let Err(env::VarError::NotPresent) = fds {
+        return Ok(vec![]);
+    }
     let fds = fds
         .context("failed to get LISTEN_FDS")?
         .parse::<usize>()
         .context("failed to parse LISTEN_FDS")?;
 
-    if process::id() != pid {
-        return Err("PID mismatch".into());
+    // Parse `$LISTEN_FDNAMES` if present.
+    if let Err(env::VarError::NotPresent) = fdnames {
+        return Ok(vec![]);
     }
-
     let fdnames = fdnames.context("failed to get LISTEN_FDNAMES")?;
     let names = fdnames.split(':').map(String::from);
+
     let vec = socks_from_fds(fds).context("failed to get sockets from file descriptor")?;
     let out = vec.into_iter().zip(names).collect();
 
