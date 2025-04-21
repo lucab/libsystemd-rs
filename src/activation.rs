@@ -192,7 +192,7 @@ fn socks_from_fds(fd_count: usize) -> Result<Vec<FileDescriptor>, SdError> {
         // Set CLOEXEC on the file descriptors we receive so that they aren't
         // passed to programs exec'd from here, just like sd_listen_fds does.
         if let Err(errno) = fcntl(fd_num, F_SETFD(FdFlag::FD_CLOEXEC)) {
-            log::warn!("couldn't set FD_CLOEXEC on {fd_num}: {errno}");
+            return Err(format!("couldn't set FD_CLOEXEC on {fd_num}: {errno}").into());
         }
         let fd = FileDescriptor::try_from(fd_num).unwrap_or_else(|(msg, val)| {
             log::warn!("{}", msg);
