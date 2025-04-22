@@ -22,7 +22,7 @@ pub fn parse_from_reader(bufrd: &mut impl BufRead) -> Result<Vec<SysusersEntry>,
 
         match data.parse() {
             Ok(entry) => output.push(entry),
-            Err(SdError { kind, msg }) if kind == ErrorKind::SysusersUnknownType => {
+            Err(SdError { kind: ErrorKind::SysusersUnknownType, msg })  => {
                 log::warn!("skipped line {}: {}", linenumber, msg);
             }
             Err(e) => {
