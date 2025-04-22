@@ -1,4 +1,5 @@
 use crate::errors::{Context, SdError};
+use nix::fcntl::{fcntl, FdFlag, F_SETFD};
 use nix::sys::socket::getsockname;
 use nix::sys::socket::{AddressFamily, SockaddrLike, SockaddrStorage};
 use nix::sys::stat::fstat;
@@ -182,13 +183,18 @@ pub fn receive_descriptors_with_names(
     Ok(out)
 }
 
-fn socks_from_fds(num_fds: usize) -> Result<Vec<FileDescriptor>, SdError> {
-    let mut descriptors = Vec::with_capacity(num_fds);
-    for fd_offset in 0..num_fds {
-        let index = SD_LISTEN_FDS_START
+fn socks_from_fds(fd_count: usize) -> Result<Vec<FileDescriptor>, SdError> {
+    let mut descriptors = Vec::with_capacity(fd_count);
+    for fd_offset in 0..fd_count {
+        let fd_num = SD_LISTEN_FDS_START
             .checked_add(fd_offset as i32)
-            .with_context(|| format!("overlarge file descriptor index: {}", num_fds))?;
-        let fd = FileDescriptor::try_from(index).unwrap_or_else(|(msg, val)| {
+            .with_context(|| format!("overlarge file descriptor index: {}", fd_count))?;
+        // Set CLOEXEC on the file descriptors we receive so that they aren't
+        // passed to programs exec'd from here, just like sd_listen_fds does.
+        if let Err(errno) = fcntl(fd_num, F_SETFD(FdFlag::FD_CLOEXEC)) {
+            return Err(format!("couldn't set FD_CLOEXEC on {fd_num}: {errno}").into());
+        }
+        let fd = FileDescriptor::try_from(fd_num).unwrap_or_else(|(msg, val)| {
             log::warn!("{}", msg);
             FileDescriptor(SocketFd::Unknown(val))
         });
