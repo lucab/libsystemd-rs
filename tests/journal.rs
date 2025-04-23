@@ -46,7 +46,7 @@ fn retry<T, E>(f: impl Fn() -> Result<T, E>) -> Result<T, E> {
 fn read_from_journal(test_name: &str) -> Vec<HashMap<String, String>> {
     let stdout = String::from_utf8(
         Command::new("journalctl")
-            .args(&["--user", "--output=json"])
+            .args(["--user", "--output=json"])
             // Filter by the PID of the current test process
             .arg(format!("_PID={}", std::process::id()))
             .arg(format!("TEST_NAME={}", test_name))

@@ -26,8 +26,6 @@ static SD_SOCK: OnceCell<UnixDatagram> = OnceCell::new();
 const PRIORITY: ValidField = ValidField::unchecked("PRIORITY");
 const MESSAGE: ValidField = ValidField::unchecked("MESSAGE");
 
-/// Trait for checking the type of a file descriptor.
-
 /// Log priority values.
 ///
 /// See `man 3 syslog`.

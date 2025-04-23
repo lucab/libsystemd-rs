@@ -17,6 +17,7 @@ fn create_and_store_persistent_state() -> Result<File, Box<dyn Error>> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(true)
         .open(&path)?;
     fs::remove_file(&path)?;
 
