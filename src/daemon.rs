@@ -95,15 +95,15 @@ pub fn notify_with_fds(
     // is understood as Linux abstract namespace socket.
     let socket_addr = match env_sock.strip_prefix('@') {
         Some(stripped_addr) => socket::UnixAddr::new_abstract(stripped_addr.as_bytes())
-            .with_context(|| format!("invalid Unix socket abstract address {}", env_sock))?,
+            .with_context(|| format!("invalid Unix socket abstract address {env_sock}"))?,
         None => socket::UnixAddr::new(env_sock.as_str())
-            .with_context(|| format!("invalid Unix socket path address {}", env_sock))?,
+            .with_context(|| format!("invalid Unix socket path address {env_sock}"))?,
     };
 
     let socket = UnixDatagram::unbound().context("failed to open Unix datagram socket")?;
     let msg = state
         .iter()
-        .fold(String::new(), |res, s| res + &format!("{}\n", s))
+        .fold(String::new(), |res, s| res + &format!("{s}\n"))
         .into_bytes();
     let msg_len = msg.len();
     let msg_iov = IoSlice::new(&msg);
@@ -125,11 +125,7 @@ pub fn notify_with_fds(
     .context("failed to send notify datagram")?;
 
     if sent_len != msg_len {
-        return Err(format!(
-            "incomplete notify sendmsg, sent {} out of {}",
-            sent_len, msg_len
-        )
-        .into());
+        return Err(format!("incomplete notify sendmsg, sent {sent_len} out of {msg_len}").into());
     }
 
     Ok(true)
@@ -173,20 +169,20 @@ pub enum NotifyState {
 impl fmt::Display for NotifyState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            NotifyState::Buserror(ref s) => write!(f, "BUSERROR={}", s),
-            NotifyState::Errno(e) => write!(f, "ERRNO={}", e),
-            NotifyState::Fdname(ref s) => write!(f, "FDNAME={}", s),
+            NotifyState::Buserror(ref s) => write!(f, "BUSERROR={s}"),
+            NotifyState::Errno(e) => write!(f, "ERRNO={e}"),
+            NotifyState::Fdname(ref s) => write!(f, "FDNAME={s}"),
             NotifyState::Fdstore => write!(f, "FDSTORE=1"),
             NotifyState::FdstoreRemove => write!(f, "FDSTOREREMOVE=1"),
             NotifyState::FdpollDisable => write!(f, "FDPOLL=0"),
-            NotifyState::Mainpid(ref p) => write!(f, "MAINPID={}", p),
-            NotifyState::Other(ref s) => write!(f, "{}", s),
+            NotifyState::Mainpid(ref p) => write!(f, "MAINPID={p}"),
+            NotifyState::Other(ref s) => write!(f, "{s}"),
             NotifyState::Ready => write!(f, "READY=1"),
             NotifyState::Reloading => write!(f, "RELOADING=1"),
-            NotifyState::Status(ref s) => write!(f, "STATUS={}", s),
+            NotifyState::Status(ref s) => write!(f, "STATUS={s}"),
             NotifyState::Stopping => write!(f, "STOPPING=1"),
             NotifyState::Watchdog => write!(f, "WATCHDOG=1"),
-            NotifyState::WatchdogUsec(u) => write!(f, "WATCHDOG_USEC={}", u),
+            NotifyState::WatchdogUsec(u) => write!(f, "WATCHDOG_USEC={u}"),
         }
     }
 }
@@ -198,7 +194,7 @@ fn sanity_check_state_entries(state: &[NotifyState]) -> Result<(), SdError> {
             NotifyState::Fdname(ref name) => validate_fdname(name),
             _ => Ok(()),
         }
-        .with_context(|| format!("invalid notify state entry #{}", index))?;
+        .with_context(|| format!("invalid notify state entry #{index}"))?;
     }
 
     Ok(())
@@ -210,12 +206,12 @@ fn sanity_check_state_entries(state: &[NotifyState]) -> Result<(), SdError> {
 /// characters or ":". It may not be longer than 255 characters.
 fn validate_fdname(fdname: &str) -> Result<(), SdError> {
     if fdname.len() > 255 {
-        return Err(format!("fdname '{}' longer than 255 characters", fdname).into());
+        return Err(format!("fdname '{fdname}' longer than 255 characters").into());
     }
 
     for c in fdname.chars() {
         if !c.is_ascii() || c == ':' || c.is_ascii_control() {
-            return Err(format!("invalid character '{}' in fdname '{}'", c, fdname).into());
+            return Err(format!("invalid character '{c}' in fdname '{fdname}'").into());
         }
     }
 

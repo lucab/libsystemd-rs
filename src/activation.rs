@@ -82,7 +82,7 @@ impl IsType for FileDescriptor {
 pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>, SdError> {
     let pid = env::var("LISTEN_PID");
     let fds = env::var("LISTEN_FDS");
-    log::trace!("LISTEN_PID = {:?}; LISTEN_FDS = {:?}", pid, fds);
+    log::trace!("LISTEN_PID = {pid:?}; LISTEN_FDS = {fds:?}");
 
     if unset_env {
         env::remove_var("LISTEN_PID");
@@ -101,9 +101,7 @@ pub fn receive_descriptors(unset_env: bool) -> Result<Vec<FileDescriptor>, SdErr
     let current_pid = process::id();
     if pid != current_pid {
         log::info!(
-            "Ignoring systemd activation settings ($LISTEN_PID={}), not meant for current process (PID {}).",
-            pid,
-            current_pid,
+            "Ignoring systemd activation settings ($LISTEN_PID={pid}), not meant for current process (PID {current_pid}).",
         );
         return Ok(vec![]);
     }
@@ -130,12 +128,7 @@ pub fn receive_descriptors_with_names(
     let pid = env::var("LISTEN_PID");
     let fds = env::var("LISTEN_FDS");
     let fdnames = env::var("LISTEN_FDNAMES");
-    log::trace!(
-        "LISTEN_PID = {:?}; LISTEN_FDS = {:?}; LISTEN_FDNAMES = {:?}",
-        pid,
-        fds,
-        fdnames
-    );
+    log::trace!("LISTEN_PID = {pid:?}; LISTEN_FDS = {fds:?}; LISTEN_FDNAMES = {fdnames:?}");
 
     if unset_env {
         env::remove_var("LISTEN_PID");
@@ -154,9 +147,7 @@ pub fn receive_descriptors_with_names(
     let current_pid = process::id();
     if pid != current_pid {
         log::info!(
-            "Ignoring systemd activation settings ($LISTEN_PID={}), not meant for current process (PID {}).",
-            pid,
-            current_pid
+            "Ignoring systemd activation settings ($LISTEN_PID={pid}), not meant for current process (PID {current_pid})."
         );
         return Ok(vec![]);
     }
@@ -188,14 +179,14 @@ fn socks_from_fds(fd_count: usize) -> Result<Vec<FileDescriptor>, SdError> {
     for fd_offset in 0..fd_count {
         let fd_num = SD_LISTEN_FDS_START
             .checked_add(fd_offset as i32)
-            .with_context(|| format!("overlarge file descriptor index: {}", fd_count))?;
+            .with_context(|| format!("overlarge file descriptor index: {fd_count}"))?;
         // Set CLOEXEC on the file descriptors we receive so that they aren't
         // passed to programs exec'd from here, just like sd_listen_fds does.
         if let Err(errno) = fcntl(fd_num, F_SETFD(FdFlag::FD_CLOEXEC)) {
             return Err(format!("couldn't set FD_CLOEXEC on {fd_num}: {errno}").into());
         }
         let fd = FileDescriptor::try_from(fd_num).unwrap_or_else(|(msg, val)| {
-            log::warn!("{}", msg);
+            log::warn!("{msg}");
             FileDescriptor(SocketFd::Unknown(val))
         });
         descriptors.push(fd);
@@ -260,10 +251,8 @@ impl TryFrom<RawFd> for FileDescriptor {
             return Ok(FileDescriptor(SocketFd::Mq(value)));
         }
 
-        let err_msg = format!(
-            "conversion failure, possibly invalid or unknown file descriptor {}",
-            value
-        );
+        let err_msg =
+            format!("conversion failure, possibly invalid or unknown file descriptor {value}");
         Err((err_msg.into(), value))
     }
 }

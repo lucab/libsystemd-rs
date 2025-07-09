@@ -246,7 +246,7 @@ where
         Err(e) => Err(e).context("send_to failed"),
     }
     .map(|_| ())
-    .with_context(|| format!("failed to print to journal at '{}'", SD_JOURNAL_SOCK_PATH))
+    .with_context(|| format!("failed to print to journal at '{SD_JOURNAL_SOCK_PATH}'"))
 }
 
 /// Print a message to the journal with the given priority.
@@ -337,22 +337,13 @@ impl JournalStream {
             s.find(':')
                 .map(|i| (&s[..i], &s[i + 1..]))
                 .with_context(|| {
-                    format!(
-                        "Failed to parse journal stream: Missing separator ':' in value '{}'",
-                        s
-                    )
+                    format!("Failed to parse journal stream: Missing separator ':' in value '{s}'")
                 })?;
         let device = libc::dev_t::from_str(device_s).with_context(|| {
-            format!(
-                "Failed to parse journal stream: Device part is not a number '{}'",
-                device_s
-            )
+            format!("Failed to parse journal stream: Device part is not a number '{device_s}'")
         })?;
         let inode = libc::ino_t::from_str(inode_s).with_context(|| {
-            format!(
-                "Failed to parse journal stream: Inode part is not a number '{}'",
-                inode_s
-            )
+            format!("Failed to parse journal stream: Inode part is not a number '{inode_s}'")
         })?;
         Ok(JournalStream { device, inode })
     }

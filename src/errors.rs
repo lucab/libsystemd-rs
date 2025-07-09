@@ -56,7 +56,7 @@ where
     where
         C: Display + Send + Sync + 'static,
     {
-        self.map_err(|e| format!("{}: {}", context, e).into())
+        self.map_err(|e| format!("{context}: {e}").into())
     }
 
     fn with_context<C, F>(self, context: F) -> Result<T, SdError>
@@ -73,7 +73,7 @@ impl<T> Context<T, core::convert::Infallible> for Option<T> {
     where
         C: Display + Send + Sync + 'static,
     {
-        self.ok_or_else(|| format!("{}", context).into())
+        self.ok_or_else(|| format!("{context}").into())
     }
 
     fn with_context<C, F>(self, context: F) -> Result<T, SdError>

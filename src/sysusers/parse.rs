@@ -12,7 +12,7 @@ pub fn parse_from_reader(bufrd: &mut impl BufRead) -> Result<Vec<SysusersEntry>,
     let mut output = vec![];
     for (index, item) in bufrd.lines().enumerate() {
         let linenumber = index.saturating_add(1);
-        let line = item.map_err(|e| format!("failed to read line {}: {}", linenumber, e))?;
+        let line = item.map_err(|e| format!("failed to read line {linenumber}: {e}"))?;
 
         let data = line.trim();
         // Skip empty lines and comments.
@@ -26,7 +26,7 @@ pub fn parse_from_reader(bufrd: &mut impl BufRead) -> Result<Vec<SysusersEntry>,
                 kind: ErrorKind::SysusersUnknownType,
                 msg,
             }) => {
-                log::warn!("skipped line {}: {}", linenumber, msg);
+                log::warn!("skipped line {linenumber}: {msg}");
             }
             Err(e) => {
                 let msg = format!(
@@ -56,7 +56,7 @@ impl FromStr for SysusersEntry {
             Some(t) => {
                 let unknown = SdError {
                     kind: ErrorKind::SysusersUnknownType,
-                    msg: format!("unknown sysusers type signature '{}'", t),
+                    msg: format!("unknown sysusers type signature '{t}'"),
                 };
                 Err(unknown)
             }
@@ -111,7 +111,7 @@ fn parse_to_sysusers_data(line: &str) -> Result<SysusersData, SdError> {
         )
     })?;
     if !rest.is_empty() {
-        return Err(format!("invalid trailing data: '{}'", rest).into());
+        return Err(format!("invalid trailing data: '{rest}'").into());
     }
     Ok(data)
 }
