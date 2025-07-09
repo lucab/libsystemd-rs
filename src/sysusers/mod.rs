@@ -382,7 +382,7 @@ impl FromStr for IdOrPath {
             return Ok(id);
         }
 
-        Err(format!("unexpected user ID '{}'", value).into())
+        Err(format!("unexpected user ID '{value}'").into())
     }
 }
 
@@ -408,7 +408,7 @@ impl FromStr for GidOrPath {
             return Ok(GidOrPath::Gid(parsed_gid));
         }
 
-        Err(format!("unexpected group ID '{}'", value).into())
+        Err(format!("unexpected group ID '{value}'").into())
     }
 }
 
@@ -419,24 +419,19 @@ pub fn validate_name_strict(input: &str) -> Result<(), SdError> {
     }
 
     if input.len() > 31 {
-        let err_msg = format!(
-            "overlong sysusers name '{}' (more than 31 characters)",
-            input
-        );
+        let err_msg = format!("overlong sysusers name '{input}' (more than 31 characters)");
         return Err(SdError::from(err_msg));
     }
 
     for (index, ch) in input.char_indices() {
         if index == 0 {
             if !(ch.is_ascii_alphabetic() || ch == '_') {
-                let err_msg = format!(
-                    "invalid starting character '{}' in sysusers name '{}'",
-                    ch, input
-                );
+                let err_msg =
+                    format!("invalid starting character '{ch}' in sysusers name '{input}'");
                 return Err(SdError::from(err_msg));
             }
         } else if !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-') {
-            let err_msg = format!("invalid character '{}' in sysusers name '{}'", ch, input);
+            let err_msg = format!("invalid character '{ch}' in sysusers name '{input}'");
             return Err(SdError::from(err_msg));
         }
     }

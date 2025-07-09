@@ -4,10 +4,10 @@ use std::fmt::{self, Display};
 impl Display for SysusersEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SysusersEntry::AddRange(v) => write!(f, "{}", v),
-            SysusersEntry::AddUserToGroup(v) => write!(f, "{}", v),
-            SysusersEntry::CreateGroup(v) => write!(f, "{}", v),
-            SysusersEntry::CreateUserAndGroup(v) => write!(f, "{}", v),
+            SysusersEntry::AddRange(v) => write!(f, "{v}"),
+            SysusersEntry::AddUserToGroup(v) => write!(f, "{v}"),
+            SysusersEntry::CreateGroup(v) => write!(f, "{v}"),
+            SysusersEntry::CreateUserAndGroup(v) => write!(f, "{v}"),
         }
     }
 }
@@ -53,9 +53,9 @@ impl Display for CreateUserAndGroup {
 impl Display for IdOrPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IdOrPath::Id(i) => write!(f, "{}", i),
-            IdOrPath::UidGid((u, g)) => write!(f, "{}:{}", u, g),
-            IdOrPath::UidGroupname((u, g)) => write!(f, "{}:{}", u, g),
+            IdOrPath::Id(i) => write!(f, "{i}"),
+            IdOrPath::UidGid((u, g)) => write!(f, "{u}:{g}"),
+            IdOrPath::UidGroupname((u, g)) => write!(f, "{u}:{g}"),
             IdOrPath::Path(p) => write!(f, "{}", p.display()),
             IdOrPath::Automatic => write!(f, "-",),
         }
@@ -65,7 +65,7 @@ impl Display for IdOrPath {
 impl Display for GidOrPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GidOrPath::Gid(g) => write!(f, "{}", g),
+            GidOrPath::Gid(g) => write!(f, "{g}"),
             GidOrPath::Path(p) => write!(f, "{}", p.display()),
             GidOrPath::Automatic => write!(f, "-",),
         }
