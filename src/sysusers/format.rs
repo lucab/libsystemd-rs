@@ -1,36 +1,45 @@
-use super::*;
+use crate::sysusers::{
+    AddRange, AddUserToGroup, CreateGroup, CreateUserAndGroup, GidOrPath, IdOrPath, SysusersEntry,
+};
+use std::borrow::Cow;
 use std::fmt::{self, Display};
+use std::path::Path;
 
 impl Display for SysusersEntry {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SysusersEntry::AddRange(v) => write!(f, "{v}"),
-            SysusersEntry::AddUserToGroup(v) => write!(f, "{v}"),
-            SysusersEntry::CreateGroup(v) => write!(f, "{v}"),
-            SysusersEntry::CreateUserAndGroup(v) => write!(f, "{v}"),
+        match *self {
+            Self::AddRange(ref v) => write!(f, "{v}"),
+            Self::AddUserToGroup(ref v) => write!(f, "{v}"),
+            Self::CreateGroup(ref v) => write!(f, "{v}"),
+            Self::CreateUserAndGroup(ref v) => write!(f, "{v}"),
         }
     }
 }
 
 impl Display for AddRange {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "r - {}-{} - - -", self.from, self.to)
     }
 }
 
 impl Display for AddUserToGroup {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "m {} {} - - -", self.username, self.groupname,)
     }
 }
 
 impl Display for CreateGroup {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "g {} {} - - -", self.groupname, self.gid,)
     }
 }
 
 impl Display for CreateUserAndGroup {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -40,41 +49,41 @@ impl Display for CreateUserAndGroup {
             self.gecos,
             self.home_dir
                 .as_deref()
-                .map(|p| p.to_string_lossy())
-                .unwrap_or(Cow::Borrowed("-")),
+                .map_or(Cow::Borrowed("-"), Path::to_string_lossy),
             self.shell
                 .as_deref()
-                .map(|p| p.to_string_lossy())
-                .unwrap_or(Cow::Borrowed("-")),
+                .map_or(Cow::Borrowed("-"), Path::to_string_lossy),
         )
     }
 }
 
 impl Display for IdOrPath {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            IdOrPath::Id(i) => write!(f, "{i}"),
-            IdOrPath::UidGid((u, g)) => write!(f, "{u}:{g}"),
-            IdOrPath::UidGroupname((u, g)) => write!(f, "{u}:{g}"),
-            IdOrPath::Path(p) => write!(f, "{}", p.display()),
-            IdOrPath::Automatic => write!(f, "-",),
+        match *self {
+            Self::Id(i) => write!(f, "{i}"),
+            Self::UidGid((u, g)) => write!(f, "{u}:{g}"),
+            Self::UidGroupname((u, ref g)) => write!(f, "{u}:{g}"),
+            Self::Path(ref p) => write!(f, "{}", p.display()),
+            Self::Automatic => write!(f, "-",),
         }
     }
 }
 
 impl Display for GidOrPath {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GidOrPath::Gid(g) => write!(f, "{g}"),
-            GidOrPath::Path(p) => write!(f, "{}", p.display()),
-            GidOrPath::Automatic => write!(f, "-",),
+        match *self {
+            Self::Gid(g) => write!(f, "{g}"),
+            Self::Path(ref p) => write!(f, "{}", p.display()),
+            Self::Automatic => write!(f, "-",),
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use crate::sysusers::{AddRange, AddUserToGroup, CreateGroup, CreateUserAndGroup};
 
     #[test]
     fn test_formatters() {

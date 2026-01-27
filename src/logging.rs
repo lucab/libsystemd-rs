@@ -1,20 +1,23 @@
-use crate::errors::{Context, SdError};
+use crate::errors::{Context as _, SdError};
+use crate::libc::fcntl;
 use nix::errno::Errno;
-use nix::fcntl::*;
-use nix::sys::memfd::MemFdCreateFlag;
-use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags, UnixAddr};
-use nix::sys::stat::{fstat, FileStat};
+use nix::fcntl::{FcntlArg, SealFlag};
+use nix::sys::memfd::MFdFlags;
+use nix::sys::socket::{ControlMessage, MsgFlags, UnixAddr, sendmsg};
+use nix::sys::stat::{FileStat, fstat};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
+use std::env::var_os;
 use std::ffi::{CStr, CString, OsStr};
 use std::fs::File;
+use std::io;
 use std::io::prelude::*;
-use std::os::unix::io::AsRawFd;
+use std::io::stderr;
+use std::os::fd::AsFd;
+use std::os::unix::io::AsRawFd as _;
 use std::os::unix::net::UnixDatagram;
-use std::os::unix::prelude::AsFd;
-use std::os::unix::prelude::FromRawFd;
-use std::os::unix::prelude::RawFd;
-use std::str::FromStr;
+use std::os::unix::prelude::{FromRawFd as _, RawFd};
+use std::str::FromStr as _;
 
 /// Default path of the systemd-journald `AF_UNIX` datagram socket.
 pub static SD_JOURNAL_SOCK_PATH: &str = "/run/systemd/journal/socket";
@@ -50,7 +53,8 @@ pub enum Priority {
     Debug,
 }
 
-impl std::convert::From<Priority> for u8 {
+impl From<Priority> for u8 {
+    #[inline]
     fn from(p: Priority) -> Self {
         match p {
             Priority::Emergency => 0,
@@ -66,22 +70,23 @@ impl std::convert::From<Priority> for u8 {
 }
 
 impl Priority {
-    fn numeric_level(&self) -> &str {
-        match self {
-            Priority::Emergency => "0",
-            Priority::Alert => "1",
-            Priority::Critical => "2",
-            Priority::Error => "3",
-            Priority::Warning => "4",
-            Priority::Notice => "5",
-            Priority::Info => "6",
-            Priority::Debug => "7",
+    #[must_use]
+    const fn numeric_level(&self) -> &str {
+        match *self {
+            Self::Emergency => "0",
+            Self::Alert => "1",
+            Self::Critical => "2",
+            Self::Error => "3",
+            Self::Warning => "4",
+            Self::Notice => "5",
+            Self::Info => "6",
+            Self::Debug => "7",
         }
     }
 }
 
-#[inline(always)]
-fn is_valid_char(c: char) -> bool {
+#[must_use]
+const fn is_valid_char(c: char) -> bool {
     c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'
 }
 
@@ -89,7 +94,8 @@ fn is_valid_char(c: char) -> bool {
 /// numbers and underscores, and may not begin with an underscore.
 ///
 /// See <https://github.com/systemd/systemd/blob/ed056c560b47f84a0aa0289151f4ec91f786d24a/src/libsystemd/sd-journal/journal-file.c#L1557>
-/// for the reference implementation of journal_field_valid.
+/// for the reference implementation of `journal_field_valid`.
+#[must_use]
 fn is_valid_field(input: &str) -> bool {
     // journald doesn't allow empty fields or fields with more than 64 bytes
     if input.is_empty() || 64 < input.len() {
@@ -116,31 +122,31 @@ struct ValidField<'a> {
 }
 
 impl<'a> ValidField<'a> {
-    /// The field value is checked by [[`is_valid_field`]] and a ValidField is returned if true.
+    /// The field value is checked by [[`is_valid_field`]] and a `ValidField` is returned if true.
+    #[must_use]
     fn validate(field: &'a str) -> Option<Self> {
-        if is_valid_field(field) {
-            Some(Self { field })
-        } else {
-            None
-        }
+        is_valid_field(field).then_some(Self { field })
     }
 
-    /// Allows for the construction of a potentially invalid ValidField.
+    /// Allows for the construction of a potentially invalid `ValidField`.
     ///
     /// Since [[`ValidField::is_valid_field`]] cannot reasonably be const, this allows for the
     /// construction of known valid field names at compile time.  It's expected that the validity is
     /// confirmed in tests by [[`ValidField::validate_unchecked`]].
+    #[must_use]
     const fn unchecked(field: &'a str) -> Self {
         Self { field }
     }
 
     /// Converts to a byte slice.
-    fn as_bytes(&self) -> &'a [u8] {
+    #[must_use]
+    const fn as_bytes(&self) -> &'a [u8] {
         self.field.as_bytes()
     }
 
     /// Returns the length in bytes.
-    fn len(&self) -> usize {
+    #[must_use]
+    const fn len(&self) -> usize {
         self.field.len()
     }
 
@@ -148,6 +154,7 @@ impl<'a> ValidField<'a> {
     ///
     /// Every unchecked field should have a corresponding test that calls this.
     #[cfg(test)]
+    #[must_use]
     fn validate_unchecked(&self) -> bool {
         is_valid_field(self.field)
     }
@@ -167,6 +174,11 @@ impl<'a> ValidField<'a> {
 ///
 /// See <https://systemd.io/JOURNAL_NATIVE_PROTOCOL/> for details.
 fn add_field_and_payload_explicit_length(data: &mut Vec<u8>, field: ValidField, payload: &str) {
+    #[cfg(any(
+        target_pointer_width = "16",
+        target_pointer_width = "32",
+        target_pointer_width = "64"
+    ))]
     let encoded_len = (payload.len() as u64).to_le_bytes();
 
     // Bump the capacity to avoid multiple allocations during the extend/push calls.  The 2 is for
@@ -192,7 +204,7 @@ fn add_field_and_payload(data: &mut Vec<u8>, field: ValidField, payload: &str) {
     if payload.contains('\n') {
         add_field_and_payload_explicit_length(data, field, payload);
     } else {
-        // If payload doesn't contain an newline directly write the field name and the payload. Bump
+        // If payload doesn't contain a newline directly write the field name and the payload. Bump
         // the capacity to avoid multiple allocations during extend/push calls.  The 2 is for the
         // two pushed bytes.
         data.reserve(field.len() + payload.len() + 2);
@@ -226,7 +238,7 @@ where
     for (ref k, ref v) in vars {
         if let Some(field) = ValidField::validate(k.as_ref()) {
             if field != PRIORITY && field != MESSAGE {
-                add_field_and_payload(&mut data, field, v.as_ref())
+                add_field_and_payload(&mut data, field, v.as_ref());
             }
         }
     }
@@ -266,14 +278,12 @@ pub fn journal_print(priority: Priority, msg: &str) -> Result<(), SdError> {
 // nix::sys::memfd::memfd_create chooses at compile time between calling libc
 // and performing a syscall, since platforms such as Android and uclibc don't
 // have memfd_create() in libc. Here we always use the syscall.
-fn memfd_create(name: &CStr, flags: MemFdCreateFlag) -> Result<File, Errno> {
-    unsafe {
-        let res = libc::syscall(libc::SYS_memfd_create, name.as_ptr(), flags.bits());
-        Errno::result(res).map(|r| {
-            // SAFETY: `memfd_create` just returned this FD, so we own it now.
-            File::from_raw_fd(r as RawFd)
-        })
-    }
+fn memfd_create(name: &CStr, flags: MFdFlags) -> Result<File, Errno> {
+    let res = unsafe { libc::syscall(libc::SYS_memfd_create, name.as_ptr(), flags.bits()) };
+    Errno::result(res).map(|r| {
+        // SAFETY: `memfd_create` just returned this FD, so we own it now.
+        unsafe { File::from_raw_fd(r as RawFd) }
+    })
 }
 
 /// Send an overlarge payload to systemd-journald socket.
@@ -284,16 +294,15 @@ fn memfd_create(name: &CStr, flags: MemFdCreateFlag) -> Result<File, Errno> {
 fn send_memfd_payload(sock: &UnixDatagram, data: &[u8]) -> Result<usize, SdError> {
     let memfd = {
         let fdname = &CString::new("libsystemd-rs-logging").context("unable to create cstring")?;
-        let mut file = memfd_create(fdname, MemFdCreateFlag::MFD_ALLOW_SEALING)
-            .context("unable to create memfd")?;
+        let mut file =
+            memfd_create(fdname, MFdFlags::MFD_ALLOW_SEALING).context("unable to create memfd")?;
 
         file.write_all(data).context("failed to write to memfd")?;
         file
     };
 
     // Seal the memfd, so that journald knows it can safely mmap/read it.
-    fcntl(memfd.as_raw_fd(), FcntlArg::F_ADD_SEALS(SealFlag::all()))
-        .context("unable to seal memfd")?;
+    fcntl(&memfd, FcntlArg::F_ADD_SEALS(SealFlag::all())).context("unable to seal memfd")?;
 
     let fds = &[memfd.as_raw_fd()];
     let ancillary = [ControlMessage::ScmRights(fds)];
@@ -345,12 +354,12 @@ impl JournalStream {
         let inode = libc::ino_t::from_str(inode_s).with_context(|| {
             format!("Failed to parse journal stream: Inode part is not a number '{inode_s}'")
         })?;
-        Ok(JournalStream { device, inode })
+        Ok(Self { device, inode })
     }
 
     /// Parse the device and inode number of the systemd journal stream denoted by the given environment variable.
     pub(crate) fn from_env_impl<S: AsRef<OsStr>>(key: S) -> Result<Self, SdError> {
-        Self::parse(std::env::var_os(&key).with_context(|| {
+        Self::parse(var_os(&key).with_context(|| {
             format!(
                 "Failed to parse journal stream: Environment variable {:?} unset",
                 key.as_ref()
@@ -369,14 +378,13 @@ impl JournalStream {
     /// Get the journal stream that would correspond to the given file descriptor.
     ///
     /// Return a journal stream struct containing the device and inode number of the given file descriptor.
-    pub fn from_fd<F: AsFd>(fd: F) -> std::io::Result<Self> {
-        fstat(fd.as_fd().as_raw_fd())
-            .map_err(Into::into)
-            .map(Into::into)
+    pub fn from_fd<F: AsFd>(fd: F) -> io::Result<Self> {
+        fstat(fd).map_err(Into::into).map(Into::into)
     }
 }
 
 impl From<FileStat> for JournalStream {
+    #[inline]
     fn from(stat: FileStat) -> Self {
         Self {
             device: stat.st_dev,
@@ -399,15 +407,22 @@ impl From<FileStat> for JournalStream {
 /// See section “Automatic Protocol Upgrading” in [systemd documentation][1] for more information.
 ///
 /// [1]: https://systemd.io/JOURNAL_NATIVE_PROTOCOL/#automatic-protocol-upgrading
+#[must_use]
 pub fn connected_to_journal() -> bool {
-    JournalStream::from_env().map_or(false, |env_stream| {
-        JournalStream::from_fd(std::io::stderr()).map_or(false, |o| o == env_stream)
-    })
+    JournalStream::from_env()
+        .is_ok_and(|env_stream| JournalStream::from_fd(stderr()).is_ok_and(|o| o == env_stream))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::libc::fcntl;
+    use crate::logging::{
+        JournalStream, MESSAGE, PRIORITY, Priority, SD_JOURNAL_SOCK_PATH, ValidField,
+        add_field_and_payload, add_field_and_payload_explicit_length, journal_print, journal_send,
+    };
+    use nix::fcntl::FcntlArg;
+    use std::collections::HashMap;
+    use std::fs::File;
 
     fn ensure_journald_socket() -> bool {
         match std::fs::metadata(SD_JOURNAL_SOCK_PATH) {
@@ -472,6 +487,7 @@ mod tests {
         map.insert("TEST_JOURNALD_LOG2", "bar");
         journal_send(Priority::Info, "Test Journald Log", map.iter()).unwrap()
     }
+
     #[test]
     fn test_journal_skip_fields() {
         if !ensure_journald_socket() {
@@ -538,7 +554,9 @@ mod tests {
         add_field_and_payload_explicit_length(&mut data, FOO, "BAR");
         assert_eq!(
             data,
-            vec![b'F', b'O', b'O', b'\n', 3, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n']
+            vec![
+                b'F', b'O', b'O', b'\n', 3, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n'
+            ]
         );
     }
 
@@ -548,7 +566,9 @@ mod tests {
         add_field_and_payload_explicit_length(&mut data, FOO, "B\nAR");
         assert_eq!(
             data,
-            vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'\n', b'A', b'R', b'\n']
+            vec![
+                b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'\n', b'A', b'R', b'\n'
+            ]
         );
     }
 
@@ -558,7 +578,9 @@ mod tests {
         add_field_and_payload_explicit_length(&mut data, FOO, "BAR\n");
         assert_eq!(
             data,
-            vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n', b'\n']
+            vec![
+                b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n', b'\n'
+            ]
         );
     }
 
@@ -575,7 +597,9 @@ mod tests {
         add_field_and_payload(&mut data, FOO, "B\nAR");
         assert_eq!(
             data,
-            vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'\n', b'A', b'R', b'\n']
+            vec![
+                b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'\n', b'A', b'R', b'\n'
+            ]
         );
     }
 
@@ -585,7 +609,9 @@ mod tests {
         add_field_and_payload(&mut data, FOO, "BAR\n");
         assert_eq!(
             data,
-            vec![b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n', b'\n']
+            vec![
+                b'F', b'O', b'O', b'\n', 4, 0, 0, 0, 0, 0, 0, 0, b'B', b'A', b'R', b'\n', b'\n'
+            ]
         );
     }
 
@@ -597,7 +623,7 @@ mod tests {
         assert_ne!(journal_stream.device, 0);
         assert_ne!(journal_stream.inode, 0);
         // Easy way to check if a file descriptor is still open, see https://stackoverflow.com/a/12340730/355252
-        let result = fcntl(file.as_raw_fd(), FcntlArg::F_GETFD);
+        let result = fcntl(&file, FcntlArg::F_GETFD);
         assert!(
             result.is_ok(),
             "File descriptor not valid anymore after JournalStream::from_fd: {:?}",

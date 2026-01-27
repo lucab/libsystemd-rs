@@ -1,11 +1,12 @@
-use crate::errors::{Context, SdError};
+use crate::errors::{Context as _, SdError};
 use libc::pid_t;
 use nix::sys::socket;
 use nix::unistd;
+use std::fmt::Write as _;
 use std::io::{self, IoSlice};
 use std::os::unix::io::RawFd;
 use std::os::unix::net::UnixDatagram;
-use std::os::unix::prelude::AsRawFd;
+use std::os::unix::prelude::AsRawFd as _;
 use std::{env, fmt, fs, time};
 
 /// Check for systemd presence at runtime.
@@ -13,6 +14,7 @@ use std::{env, fmt, fs, time};
 /// Return true if the system was booted with systemd.
 /// This check is based on the presence of the systemd
 /// runtime directory.
+#[must_use]
 pub fn booted() -> bool {
     fs::symlink_metadata("/run/systemd/system")
         .map(|p| p.is_dir())
@@ -24,18 +26,19 @@ pub fn booted() -> bool {
 /// Return a timeout before which the watchdog expects a
 /// response from the process, or `None` if watchdog support is
 /// not enabled. If `unset_env` is true, environment will be cleared.
+#[must_use]
 pub fn watchdog_enabled(unset_env: bool) -> Option<time::Duration> {
     let env_usec = env::var("WATCHDOG_USEC").ok();
     let env_pid = env::var("WATCHDOG_PID").ok();
 
     if unset_env {
-        env::remove_var("WATCHDOG_USEC");
-        env::remove_var("WATCHDOG_PID");
-    };
+        unsafe { env::remove_var("WATCHDOG_USEC") };
+        unsafe { env::remove_var("WATCHDOG_PID") };
+    }
 
     let timeout = {
         if let Some(usec) = env_usec.and_then(|usec_str| usec_str.parse::<u64>().ok()) {
-            time::Duration::from_millis(usec / 1_000)
+            time::Duration::from_micros(usec)
         } else {
             return None;
         }
@@ -80,14 +83,13 @@ pub fn notify_with_fds(
     state: &[NotifyState],
     fds: &[RawFd],
 ) -> Result<bool, SdError> {
-    let env_sock = match env::var("NOTIFY_SOCKET").ok() {
-        None => return Ok(false),
-        Some(v) => v,
+    let Ok(env_sock) = env::var("NOTIFY_SOCKET") else {
+        return Ok(false);
     };
 
     if unset_env {
-        env::remove_var("NOTIFY_SOCKET");
-    };
+        unsafe { env::remove_var("NOTIFY_SOCKET") };
+    }
 
     sanity_check_state_entries(state)?;
 
@@ -103,15 +105,18 @@ pub fn notify_with_fds(
     let socket = UnixDatagram::unbound().context("failed to open Unix datagram socket")?;
     let msg = state
         .iter()
-        .fold(String::new(), |res, s| res + &format!("{s}\n"))
+        .fold(String::new(), |mut res, s| {
+            writeln!(res, "{s}").unwrap();
+            res
+        })
         .into_bytes();
     let msg_len = msg.len();
     let msg_iov = IoSlice::new(&msg);
 
-    let ancillary = if !fds.is_empty() {
-        vec![socket::ControlMessage::ScmRights(fds)]
-    } else {
+    let ancillary = if fds.is_empty() {
         vec![]
+    } else {
+        vec![socket::ControlMessage::ScmRights(fds)]
     };
 
     let sent_len = socket::sendmsg(
@@ -167,22 +172,23 @@ pub enum NotifyState {
 }
 
 impl fmt::Display for NotifyState {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            NotifyState::Buserror(ref s) => write!(f, "BUSERROR={s}"),
-            NotifyState::Errno(e) => write!(f, "ERRNO={e}"),
-            NotifyState::Fdname(ref s) => write!(f, "FDNAME={s}"),
-            NotifyState::Fdstore => write!(f, "FDSTORE=1"),
-            NotifyState::FdstoreRemove => write!(f, "FDSTOREREMOVE=1"),
-            NotifyState::FdpollDisable => write!(f, "FDPOLL=0"),
-            NotifyState::Mainpid(ref p) => write!(f, "MAINPID={p}"),
-            NotifyState::Other(ref s) => write!(f, "{s}"),
-            NotifyState::Ready => write!(f, "READY=1"),
-            NotifyState::Reloading => write!(f, "RELOADING=1"),
-            NotifyState::Status(ref s) => write!(f, "STATUS={s}"),
-            NotifyState::Stopping => write!(f, "STOPPING=1"),
-            NotifyState::Watchdog => write!(f, "WATCHDOG=1"),
-            NotifyState::WatchdogUsec(u) => write!(f, "WATCHDOG_USEC={u}"),
+            Self::Buserror(ref s) => write!(f, "BUSERROR={s}"),
+            Self::Errno(e) => write!(f, "ERRNO={e}"),
+            Self::Fdname(ref s) => write!(f, "FDNAME={s}"),
+            Self::Fdstore => write!(f, "FDSTORE=1"),
+            Self::FdstoreRemove => write!(f, "FDSTOREREMOVE=1"),
+            Self::FdpollDisable => write!(f, "FDPOLL=0"),
+            Self::Mainpid(ref p) => write!(f, "MAINPID={p}"),
+            Self::Other(ref s) => write!(f, "{s}"),
+            Self::Ready => write!(f, "READY=1"),
+            Self::Reloading => write!(f, "RELOADING=1"),
+            Self::Status(ref s) => write!(f, "STATUS={s}"),
+            Self::Stopping => write!(f, "STOPPING=1"),
+            Self::Watchdog => write!(f, "WATCHDOG=1"),
+            Self::WatchdogUsec(u) => write!(f, "WATCHDOG_USEC={u}"),
         }
     }
 }
@@ -190,11 +196,10 @@ impl fmt::Display for NotifyState {
 /// Perform some basic sanity checks against state entries.
 fn sanity_check_state_entries(state: &[NotifyState]) -> Result<(), SdError> {
     for (index, entry) in state.iter().enumerate() {
-        match entry {
-            NotifyState::Fdname(ref name) => validate_fdname(name),
-            _ => Ok(()),
+        if let NotifyState::Fdname(ref name) = *entry {
+            validate_fdname(name)
+                .with_context(|| format!("invalid notify state entry #{index}"))?;
         }
-        .with_context(|| format!("invalid notify state entry #{index}"))?;
     }
 
     Ok(())

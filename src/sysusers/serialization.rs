@@ -1,5 +1,8 @@
-use super::*;
-use serde::ser::SerializeStruct;
+use crate::errors::SdError;
+use crate::sysusers::{
+    AddRange, AddUserToGroup, CreateGroup, CreateUserAndGroup, GidOrPath, IdOrPath,
+};
+use serde::ser::SerializeStruct as _;
 use serde::{Deserialize, Serialize, Serializer};
 use std::convert::TryFrom;
 
@@ -7,32 +10,33 @@ use std::convert::TryFrom;
 const SYSUSERS_FIELDS: usize = 6;
 
 /// Intermediate format holding raw data for deserialization.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub(crate) struct SysusersData {
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct SysusersData {
     #[serde(rename(deserialize = "Type"))]
-    pub(crate) kind: String,
+    pub kind: String,
     #[serde(rename(deserialize = "Name"))]
-    pub(crate) name: String,
+    pub name: String,
     #[serde(rename(deserialize = "ID"))]
-    pub(crate) id: String,
+    pub id: String,
     #[serde(rename(deserialize = "GECOS"))]
-    pub(crate) gecos: Option<String>,
+    pub gecos: Option<String>,
     #[serde(rename(deserialize = "Home directory"))]
-    pub(crate) home_dir: Option<String>,
+    pub home_dir: Option<String>,
     #[serde(rename(deserialize = "Shell"))]
-    pub(crate) shell: Option<String>,
+    pub shell: Option<String>,
 }
 
 impl TryFrom<SysusersData> for AddRange {
     type Error = SdError;
 
+    #[inline]
     fn try_from(value: SysusersData) -> Result<Self, Self::Error> {
         if value.kind != "r" {
             return Err(format!("unexpected sysuser entry of type '{}'", value.kind).into());
-        };
-        ensure_field_none_or_automatic("GECOS", &value.gecos)?;
-        ensure_field_none_or_automatic("Home directory", &value.home_dir)?;
-        ensure_field_none_or_automatic("Shell", &value.shell)?;
+        }
+        ensure_field_none_or_automatic("GECOS", value.gecos.as_ref())?;
+        ensure_field_none_or_automatic("Home directory", value.home_dir.as_ref())?;
+        ensure_field_none_or_automatic("Shell", value.shell.as_ref())?;
 
         let tokens: Vec<_> = value.id.split('-').collect();
         let (from, to) = match tokens.len() {
@@ -49,13 +53,14 @@ impl TryFrom<SysusersData> for AddRange {
 impl TryFrom<SysusersData> for AddUserToGroup {
     type Error = SdError;
 
+    #[inline]
     fn try_from(value: SysusersData) -> Result<Self, Self::Error> {
         if value.kind != "m" {
             return Err(format!("unexpected sysuser entry of type '{}'", value.kind).into());
         }
-        ensure_field_none_or_automatic("GECOS", &value.gecos)?;
-        ensure_field_none_or_automatic("Home directory", &value.home_dir)?;
-        ensure_field_none_or_automatic("Shell", &value.shell)?;
+        ensure_field_none_or_automatic("GECOS", value.gecos.as_ref())?;
+        ensure_field_none_or_automatic("Home directory", value.home_dir.as_ref())?;
+        ensure_field_none_or_automatic("Shell", value.shell.as_ref())?;
 
         Self::new(value.name, value.id)
     }
@@ -64,13 +69,14 @@ impl TryFrom<SysusersData> for AddUserToGroup {
 impl TryFrom<SysusersData> for CreateGroup {
     type Error = SdError;
 
+    #[inline]
     fn try_from(value: SysusersData) -> Result<Self, Self::Error> {
         if value.kind != "g" {
             return Err(format!("unexpected sysuser entry of type '{}'", value.kind).into());
         }
-        ensure_field_none_or_automatic("GECOS", &value.gecos)?;
-        ensure_field_none_or_automatic("Home directory", &value.home_dir)?;
-        ensure_field_none_or_automatic("Shell", &value.shell)?;
+        ensure_field_none_or_automatic("GECOS", value.gecos.as_ref())?;
+        ensure_field_none_or_automatic("Home directory", value.home_dir.as_ref())?;
+        ensure_field_none_or_automatic("Shell", value.shell.as_ref())?;
 
         let gid: GidOrPath = value.id.parse()?;
         Self::impl_new(value.name, gid)
@@ -80,6 +86,7 @@ impl TryFrom<SysusersData> for CreateGroup {
 impl TryFrom<SysusersData> for CreateUserAndGroup {
     type Error = SdError;
 
+    #[inline]
     fn try_from(value: SysusersData) -> Result<Self, Self::Error> {
         if value.kind != "u" {
             return Err(format!("unexpected sysuser entry of type '{}'", value.kind).into());
@@ -97,6 +104,7 @@ impl TryFrom<SysusersData> for CreateUserAndGroup {
 }
 
 impl Serialize for AddRange {
+    #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -113,6 +121,7 @@ impl Serialize for AddRange {
 }
 
 impl Serialize for AddUserToGroup {
+    #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -129,6 +138,7 @@ impl Serialize for AddUserToGroup {
 }
 
 impl Serialize for CreateGroup {
+    #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -145,6 +155,7 @@ impl Serialize for CreateGroup {
 }
 
 impl Serialize for CreateUserAndGroup {
+    #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -161,6 +172,7 @@ impl Serialize for CreateUserAndGroup {
 }
 
 impl Serialize for IdOrPath {
+    #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -170,6 +182,7 @@ impl Serialize for IdOrPath {
 }
 
 impl Serialize for GidOrPath {
+    #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -181,7 +194,7 @@ impl Serialize for GidOrPath {
 /// Ensure that a field value is either missing or using the default value `-`.
 fn ensure_field_none_or_automatic(
     field_name: &str,
-    input: &Option<impl AsRef<str>>,
+    input: Option<&impl AsRef<str>>,
 ) -> Result<(), SdError> {
     if let Some(val) = input {
         if val.as_ref() != "-" {
@@ -193,7 +206,9 @@ fn ensure_field_none_or_automatic(
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use crate::sysusers::{
+        AddRange, AddUserToGroup, CreateGroup, CreateUserAndGroup, SysusersEntry,
+    };
 
     #[test]
     fn test_serialization() {

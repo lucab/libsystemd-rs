@@ -5,11 +5,12 @@ use std::env::VarError;
 use std::process::Command;
 
 use pretty_assertions::assert_eq;
-use rand::distr::Alphanumeric;
 use rand::Rng;
+use rand::distr::Alphanumeric;
 
 use libsystemd::logging::*;
 
+#[must_use]
 fn random_target(prefix: &str) -> String {
     format!(
         "{}_{}",
@@ -28,6 +29,7 @@ enum Journal {
     System,
 }
 
+#[must_use]
 fn read_from_journal(journal: Journal, target: &str) -> Vec<HashMap<String, String>> {
     let stdout = String::from_utf8(
         Command::new("journalctl")

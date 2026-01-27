@@ -1,12 +1,16 @@
-use super::*;
+use crate::errors::SdError;
+use crate::sysusers::{
+    AddRange, AddUserToGroup, CreateGroup, CreateUserAndGroup, SysusersData, SysusersEntry,
+};
 use nom::bytes::complete::{tag, take_while1};
 use nom::character::complete::{anychar, multispace0, multispace1};
-use nom::{Finish, IResult};
-use std::convert::TryInto;
+use nom::{Finish as _, IResult};
+use std::convert::TryInto as _;
+use std::io::BufRead;
 use std::str::FromStr;
 
 /// Parse `sysusers.d` configuration entries from a buffered reader.
-pub fn parse_from_reader(bufrd: &mut impl BufRead) -> Result<Vec<SysusersEntry>, SdError> {
+pub fn parse_from_reader<B: BufRead>(bufrd: &mut B) -> Result<Vec<SysusersEntry>, SdError> {
     use crate::errors::ErrorKind;
 
     let mut output = vec![];
@@ -35,7 +39,7 @@ pub fn parse_from_reader(bufrd: &mut impl BufRead) -> Result<Vec<SysusersEntry>,
                 );
                 return Err(msg.into());
             }
-        };
+        }
     }
 
     Ok(output)
@@ -44,15 +48,18 @@ pub fn parse_from_reader(bufrd: &mut impl BufRead) -> Result<Vec<SysusersEntry>,
 impl FromStr for SysusersEntry {
     type Err = SdError;
 
+    #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use crate::errors::ErrorKind;
 
         let input = s.trim();
         match input.chars().next() {
-            Some('g') => CreateGroup::from_str(input).map(|v| v.into_sysusers_entry()),
-            Some('m') => AddUserToGroup::from_str(input).map(|v| v.into_sysusers_entry()),
-            Some('r') => AddRange::from_str(input).map(|v| v.into_sysusers_entry()),
-            Some('u') => CreateUserAndGroup::from_str(input).map(|v| v.into_sysusers_entry()),
+            Some('g') => CreateGroup::from_str(input).map(CreateGroup::into_sysusers_entry),
+            Some('m') => AddUserToGroup::from_str(input).map(AddUserToGroup::into_sysusers_entry),
+            Some('r') => AddRange::from_str(input).map(AddRange::into_sysusers_entry),
+            Some('u') => {
+                CreateUserAndGroup::from_str(input).map(CreateUserAndGroup::into_sysusers_entry)
+            }
             Some(t) => {
                 let unknown = SdError {
                     kind: ErrorKind::SysusersUnknownType,
@@ -68,6 +75,7 @@ impl FromStr for SysusersEntry {
 impl FromStr for AddRange {
     type Err = SdError;
 
+    #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let data = parse_to_sysusers_data(s)?;
         data.try_into()
@@ -77,6 +85,7 @@ impl FromStr for AddRange {
 impl FromStr for AddUserToGroup {
     type Err = SdError;
 
+    #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let data = parse_to_sysusers_data(s)?;
         data.try_into()
@@ -86,6 +95,7 @@ impl FromStr for AddUserToGroup {
 impl FromStr for CreateGroup {
     type Err = SdError;
 
+    #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let data = parse_to_sysusers_data(s)?;
         data.try_into()
@@ -95,6 +105,7 @@ impl FromStr for CreateGroup {
 impl FromStr for CreateUserAndGroup {
     type Err = SdError;
 
+    #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let data = parse_to_sysusers_data(s)?;
         data.try_into()
@@ -126,27 +137,27 @@ fn parse_line(input: &str) -> IResult<&str, SysusersData> {
     let (rest, name) = {
         let (rest, name) = take_while1(|c: char| !c.is_ascii_whitespace())(rest)?;
         let (rest, _) = multispace1(rest)?;
-        (rest, name.to_string())
+        (rest, name.to_owned())
     };
     let (rest, id) = {
         let (rest, id) = take_while1(|c: char| !c.is_ascii_whitespace())(rest)?;
         let (rest, _) = multispace0(rest)?;
-        (rest, id.to_string())
+        (rest, id.to_owned())
     };
     let (rest, gecos) = {
         let (rest, gecos) = parse_opt_string(rest)?;
         let (rest, _) = multispace0(rest)?;
-        (rest, gecos.map(|s| s.to_string()))
+        (rest, gecos.map(ToOwned::to_owned))
     };
     let (rest, home_dir) = {
         let (rest, home_dir) = parse_opt_string(rest)?;
         let (rest, _) = multispace0(rest)?;
-        (rest, home_dir.map(|s| s.to_string()))
+        (rest, home_dir.map(ToOwned::to_owned))
     };
     let (rest, shell) = {
         let (rest, shell) = parse_opt_string(rest)?;
         let (rest, _) = multispace0(rest)?;
-        (rest, shell.map(|s| s.to_string()))
+        (rest, shell.map(ToOwned::to_owned))
     };
 
     let data = SysusersData {
@@ -185,8 +196,8 @@ fn parse_plain_string(input: &str) -> IResult<&str, Option<&str>> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use crate::sysusers;
+    use crate::sysusers::{AddRange, AddUserToGroup, CreateGroup, CreateUserAndGroup};
 
     #[test]
     fn test_type_g() {

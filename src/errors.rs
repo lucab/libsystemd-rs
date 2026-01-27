@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+use std::error::Error;
 use std::fmt::Display;
 
 /// Library errors.
@@ -9,15 +11,17 @@ pub struct SdError {
 }
 
 impl From<&str> for SdError {
+    #[inline]
     fn from(arg: &str) -> Self {
         Self {
             kind: ErrorKind::Generic,
-            msg: arg.to_string(),
+            msg: arg.to_owned(),
         }
     }
 }
 
 impl From<String> for SdError {
+    #[inline]
     fn from(arg: String) -> Self {
         Self {
             kind: ErrorKind::Generic,
@@ -33,8 +37,8 @@ pub(crate) enum ErrorKind {
     SysusersUnknownType,
 }
 
-/// Context is similar to anyhow::Context, in that it provides a mechanism internally to adapt
-/// errors from systemd into SdError, while providing additional context in a readable manner.
+/// Context is similar to `anyhow::Context`, in that it provides a mechanism internally to adapt
+/// errors from systemd into `SdError`, while providing additional context in a readable manner.
 pub(crate) trait Context<T, E> {
     /// Prepend the error with context.
     fn context<C>(self, context: C) -> Result<T, SdError>
@@ -42,7 +46,7 @@ pub(crate) trait Context<T, E> {
         C: Display + Send + Sync + 'static;
 
     /// Prepend the error with context that is lazily evaluated.
-    fn with_context<C, F>(self, f: F) -> Result<T, SdError>
+    fn with_context<C, F>(self, context: F) -> Result<T, SdError>
     where
         C: Display + Send + Sync + 'static,
         F: FnOnce() -> C;
@@ -50,8 +54,9 @@ pub(crate) trait Context<T, E> {
 
 impl<T, E> Context<T, E> for Result<T, E>
 where
-    E: std::error::Error + Send + Sync + 'static,
+    E: Error + Send + Sync + 'static,
 {
+    #[inline]
     fn context<C>(self, context: C) -> Result<T, SdError>
     where
         C: Display + Send + Sync + 'static,
@@ -59,6 +64,7 @@ where
         self.map_err(|e| format!("{context}: {e}").into())
     }
 
+    #[inline]
     fn with_context<C, F>(self, context: F) -> Result<T, SdError>
     where
         C: Display + Send + Sync + 'static,
@@ -68,7 +74,8 @@ where
     }
 }
 
-impl<T> Context<T, core::convert::Infallible> for Option<T> {
+impl<T> Context<T, Infallible> for Option<T> {
+    #[inline]
     fn context<C>(self, context: C) -> Result<T, SdError>
     where
         C: Display + Send + Sync + 'static,
@@ -76,6 +83,7 @@ impl<T> Context<T, core::convert::Infallible> for Option<T> {
         self.ok_or_else(|| format!("{context}").into())
     }
 
+    #[inline]
     fn with_context<C, F>(self, context: F) -> Result<T, SdError>
     where
         C: Display + Send + Sync + 'static,
