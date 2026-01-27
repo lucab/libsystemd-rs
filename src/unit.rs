@@ -1,7 +1,8 @@
 /// Unit name escaping, like `systemd-escape`.
+#[must_use]
 pub fn escape_name(name: &str) -> String {
     if name.is_empty() {
-        return "".to_string();
+        return String::new();
     }
 
     let parts: Vec<String> = name
@@ -13,10 +14,11 @@ pub fn escape_name(name: &str) -> String {
 }
 
 /// Path escaping, like `systemd-escape --path`.
+#[must_use]
 pub fn escape_path(name: &str) -> String {
     let trimmed = name.trim_matches('/');
     if trimmed.is_empty() {
-        return "-".to_string();
+        return "-".to_owned();
     }
 
     let mut slash_seq = false;
@@ -34,13 +36,14 @@ pub fn escape_path(name: &str) -> String {
     parts.join("")
 }
 
+#[must_use]
 fn escape_byte(b: u8, index: usize) -> String {
     let c = char::from(b);
     match c {
         '/' => '-'.to_string(),
         ':' | '_' | '0'..='9' | 'a'..='z' | 'A'..='Z' => c.to_string(),
         '.' if index > 0 => c.to_string(),
-        _ => format!(r#"\x{b:02x}"#),
+        _ => format!(r"\x{b:02x}"),
     }
 }
 

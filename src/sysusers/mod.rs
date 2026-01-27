@@ -40,11 +40,9 @@
 //! ```
 
 pub(crate) use self::serialization::SysusersData;
-use crate::errors::{Context, SdError};
+use crate::errors::{Context as _, SdError};
 pub use parse::parse_from_reader;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
-use std::io::BufRead;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -64,22 +62,24 @@ pub enum SysusersEntry {
 
 impl SysusersEntry {
     /// Return the single-character signature for the "Type" field of this entry.
+    #[must_use]
     pub fn type_signature(&self) -> &str {
-        match self {
-            SysusersEntry::AddRange(v) => v.type_signature(),
-            SysusersEntry::AddUserToGroup(v) => v.type_signature(),
-            SysusersEntry::CreateGroup(v) => v.type_signature(),
-            SysusersEntry::CreateUserAndGroup(v) => v.type_signature(),
+        match *self {
+            Self::AddRange(ref v) => v.type_signature(),
+            Self::AddUserToGroup(ref v) => v.type_signature(),
+            Self::CreateGroup(ref v) => v.type_signature(),
+            Self::CreateUserAndGroup(ref v) => v.type_signature(),
         }
     }
 
     /// Return the value for the "Name" field of this entry.
+    #[must_use]
     pub fn name(&self) -> &str {
-        match self {
-            SysusersEntry::AddRange(_) => "-",
-            SysusersEntry::AddUserToGroup(v) => &v.username,
-            SysusersEntry::CreateGroup(v) => &v.groupname,
-            SysusersEntry::CreateUserAndGroup(v) => &v.name,
+        match *self {
+            Self::AddRange(_) => "-",
+            Self::AddUserToGroup(ref v) => &v.username,
+            Self::CreateGroup(ref v) => &v.groupname,
+            Self::CreateUserAndGroup(ref v) => &v.name,
         }
     }
 }
@@ -99,21 +99,25 @@ impl AddRange {
     }
 
     /// Return the single-character signature for the "Type" field of this entry.
+    #[must_use]
     pub fn type_signature(&self) -> &str {
         "r"
     }
 
     /// Return the lower end for the range of this entry.
+    #[must_use]
     pub fn from(&self) -> u32 {
         self.from
     }
 
     /// Return the upper end for the range of this entry.
+    #[must_use]
     pub fn to(&self) -> u32 {
         self.to
     }
 
-    pub(crate) fn into_sysusers_entry(self) -> SysusersEntry {
+    #[must_use]
+    pub(crate) const fn into_sysusers_entry(self) -> SysusersEntry {
         SysusersEntry::AddRange(self)
     }
 }
@@ -138,21 +142,25 @@ impl AddUserToGroup {
     }
 
     /// Return the single-character signature for the "Type" field of this entry.
+    #[must_use]
     pub fn type_signature(&self) -> &str {
         "m"
     }
 
     /// Return the user name ("Name" field) of this entry.
+    #[must_use]
     pub fn username(&self) -> &str {
         &self.username
     }
 
     /// Return the group name ("ID" field) of this entry.
+    #[must_use]
     pub fn groupname(&self) -> &str {
         &self.groupname
     }
 
-    pub(crate) fn into_sysusers_entry(self) -> SysusersEntry {
+    #[must_use]
+    pub(crate) const fn into_sysusers_entry(self) -> SysusersEntry {
         SysusersEntry::AddUserToGroup(self)
     }
 }
@@ -187,29 +195,34 @@ impl CreateGroup {
     }
 
     /// Return the single-character signature for the "Type" field of this entry.
+    #[must_use]
     pub fn type_signature(&self) -> &str {
         "g"
     }
 
     /// Return the group name ("Name" field) of this entry.
+    #[must_use]
     pub fn groupname(&self) -> &str {
         &self.groupname
     }
 
     /// Return whether GID is dynamically allocated at runtime.
+    #[must_use]
     pub fn has_dynamic_gid(&self) -> bool {
         matches!(self.gid, GidOrPath::Automatic)
     }
 
     /// Return the group identifier (GID) of this entry, if statically set.
+    #[must_use]
     pub fn static_gid(&self) -> Option<u32> {
         match self.gid {
             GidOrPath::Gid(n) => Some(n),
-            _ => None,
+            GidOrPath::Path(_) | GidOrPath::Automatic => None,
         }
     }
 
-    pub(crate) fn into_sysusers_entry(self) -> SysusersEntry {
+    #[must_use]
+    pub(crate) const fn into_sysusers_entry(self) -> SysusersEntry {
         SysusersEntry::CreateGroup(self)
     }
 }
@@ -307,40 +320,43 @@ impl CreateUserAndGroup {
     }
 
     /// Return the single-character signature for the "Type" field of this entry.
+    #[must_use]
     pub fn type_signature(&self) -> &str {
         "u"
     }
 
     /// Return the user and group name ("Name" field) of this entry.
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Return whether UID and GID are dynamically allocated at runtime.
+    #[must_use]
     pub fn has_dynamic_ids(&self) -> bool {
         matches!(self.id, IdOrPath::Automatic)
     }
 
     /// Return the user identifier (UID) of this entry, if statically set.
+    #[must_use]
     pub fn static_uid(&self) -> Option<u32> {
         match self.id {
-            IdOrPath::Id(n) => Some(n),
-            IdOrPath::UidGid((n, _)) => Some(n),
-            IdOrPath::UidGroupname((n, _)) => Some(n),
-            _ => None,
+            IdOrPath::Id(n) | IdOrPath::UidGid((n, _)) | IdOrPath::UidGroupname((n, _)) => Some(n),
+            IdOrPath::Path(_) | IdOrPath::Automatic => None,
         }
     }
 
     /// Return the groups identifier (GID) of this entry, if statically set.
+    #[must_use]
     pub fn static_gid(&self) -> Option<u32> {
         match self.id {
-            IdOrPath::Id(n) => Some(n),
-            IdOrPath::UidGid((_, n)) => Some(n),
-            _ => None,
+            IdOrPath::Id(n) | IdOrPath::UidGid((_, n)) => Some(n),
+            IdOrPath::UidGroupname(_) | IdOrPath::Path(_) | IdOrPath::Automatic => None,
         }
     }
 
-    pub(crate) fn into_sysusers_entry(self) -> SysusersEntry {
+    #[must_use]
+    pub(crate) const fn into_sysusers_entry(self) -> SysusersEntry {
         SysusersEntry::CreateUserAndGroup(self)
     }
 }
@@ -358,26 +374,26 @@ pub(crate) enum IdOrPath {
 impl FromStr for IdOrPath {
     type Err = SdError;
 
+    #[inline]
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         if value == "-" {
-            return Ok(IdOrPath::Automatic);
+            return Ok(Self::Automatic);
         }
         if value.starts_with('/') {
-            return Ok(IdOrPath::Path(value.into()));
+            return Ok(Self::Path(value.into()));
         }
         if let Ok(single_id) = value.parse() {
-            return Ok(IdOrPath::Id(single_id));
+            return Ok(Self::Id(single_id));
         }
         let tokens: Vec<_> = value.split(':').filter(|s| !s.is_empty()).collect();
         if tokens.len() == 2 {
             let uid: u32 = tokens[0].parse().context("invalid user id")?;
-            let id = match tokens[1].parse() {
-                Ok(gid) => IdOrPath::UidGid((uid, gid)),
-                _ => {
-                    let groupname = tokens[1].to_string();
-                    validate_name_strict(&groupname).context("name failed validation")?;
-                    IdOrPath::UidGroupname((uid, groupname))
-                }
+            let id = if let Ok(gid) = tokens[1].parse() {
+                Self::UidGid((uid, gid))
+            } else {
+                let groupname = tokens[1].to_owned();
+                validate_name_strict(&groupname).context("name failed validation")?;
+                Self::UidGroupname((uid, groupname))
             };
             return Ok(id);
         }
@@ -397,15 +413,16 @@ pub(crate) enum GidOrPath {
 impl FromStr for GidOrPath {
     type Err = SdError;
 
+    #[inline]
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         if value == "-" {
-            return Ok(GidOrPath::Automatic);
+            return Ok(Self::Automatic);
         }
         if value.starts_with('/') {
-            return Ok(GidOrPath::Path(value.into()));
+            return Ok(Self::Path(value.into()));
         }
         if let Ok(parsed_gid) = value.parse() {
-            return Ok(GidOrPath::Gid(parsed_gid));
+            return Ok(Self::Gid(parsed_gid));
         }
 
         Err(format!("unexpected group ID '{value}'").into())
@@ -441,7 +458,7 @@ pub fn validate_name_strict(input: &str) -> Result<(), SdError> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use crate::sysusers::validate_name_strict;
 
     #[test]
     fn test_validate_name_strict() {

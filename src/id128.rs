@@ -1,8 +1,8 @@
-use crate::errors::{Context, SdError};
+use crate::errors::{Context as _, SdError};
 use serde::{Deserialize, Serialize};
-use std::fmt::Write;
+use std::fmt::Write as _;
 use std::hash::Hash;
-use std::io::Read;
+use std::io::Read as _;
 use std::{fmt, fs};
 use uuid::{Bytes, Uuid};
 
@@ -23,7 +23,8 @@ impl Id128 {
         Ok(Self { uuid_v4 })
     }
 
-    /// Build an `Id128` from 16 bytes
+    /// Build an `Id128` from 16 bytes.
+    #[must_use]
     pub const fn from_bytes(bytes: Bytes) -> Self {
         Self {
             uuid_v4: Uuid::from_bytes(bytes),
@@ -43,7 +44,7 @@ impl Id128 {
 
     /// Hash this ID with an application-specific ID.
     pub fn app_specific(&self, app: &Self) -> Result<Self, SdError> {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, Mac as _};
         use sha2::Sha256;
 
         let mut mac = Hmac::<Sha256>::new_from_slice(self.uuid_v4.as_bytes())
@@ -53,7 +54,7 @@ impl Id128 {
 
         if hashed.len() != 32 {
             return Err("short hash".into());
-        };
+        }
 
         // Set version to 4.
         hashed[6] = (hashed[6] & 0x0F) | 0x40;
@@ -64,6 +65,7 @@ impl Id128 {
     }
 
     /// Return this ID as a lowercase hexadecimal string, without dashes.
+    #[must_use]
     pub fn lower_hex(&self) -> String {
         let mut hex = String::new();
         for byte in self.uuid_v4.as_bytes() {
@@ -73,12 +75,13 @@ impl Id128 {
     }
 
     /// Return this ID as a lowercase hexadecimal string, with dashes.
+    #[must_use]
     pub fn dashed_hex(&self) -> String {
         format!("{}", self.uuid_v4.hyphenated())
     }
 
     /// Custom serialization (lower hex).
-    fn ser_uuid<S>(field: &Uuid, s: S) -> ::std::result::Result<S::Ok, S::Error>
+    fn ser_uuid<S>(field: &Uuid, s: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::Serializer,
     {
@@ -91,12 +94,14 @@ impl Id128 {
 }
 
 impl fmt::Debug for Id128 {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.dashed_hex())
     }
 }
 
 impl From<Uuid> for Id128 {
+    #[inline]
     fn from(uuid_v4: Uuid) -> Self {
         Self { uuid_v4 }
     }
@@ -134,7 +139,7 @@ pub fn get_boot_app_specific(app_id: &Id128) -> Result<Id128, SdError> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use crate::id128::Id128;
 
     #[test]
     fn basic_parse_str() {

@@ -1,11 +1,12 @@
 use std::process::Command;
 
 use libsystemd::logging::Priority;
-use rand::distr::Alphanumeric;
 use rand::Rng;
+use rand::distr::Alphanumeric;
 use std::collections::HashMap;
 use std::time::Duration;
 
+#[must_use]
 fn random_name(prefix: &str) -> String {
     format!(
         "{}_{}",
@@ -43,6 +44,7 @@ fn retry<T, E>(f: impl Fn() -> Result<T, E>) -> Result<T, E> {
 /// added as `TEST_NAME` match to the `journalctl` call, to make sure to
 /// only select journal entries originating from and relevant to the
 /// current test.
+#[must_use]
 fn read_from_journal(test_name: &str) -> Vec<HashMap<String, String>> {
     let stdout = String::from_utf8(
         Command::new("journalctl")
@@ -66,6 +68,7 @@ fn read_from_journal(test_name: &str) -> Vec<HashMap<String, String>> {
 ///
 /// Try to read lines for `testname` from journal, and `retry()` if the wasn't
 /// _exactly_ one matching line.
+#[must_use]
 fn retry_read_one_line_from_journal(testname: &str) -> HashMap<String, String> {
     retry(|| {
         let mut messages = read_from_journal(testname);

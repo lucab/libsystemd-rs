@@ -1,9 +1,9 @@
-use crate::errors::{Context, SdError};
+use crate::errors::{Context as _, SdError};
 use nix::dir;
 use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 use std::env;
-use std::fs::File;
+use std::fs::{File, ReadDir, read_dir};
 use std::path::PathBuf;
 
 /// Credential loader for units.
@@ -37,8 +37,9 @@ impl CredentialsLoader {
     }
 
     /// Return the location of the credentials directory, if any.
+    #[must_use]
     pub fn path_from_env() -> Option<PathBuf> {
-        env::var("CREDENTIALS_DIRECTORY").map(|v| v.into()).ok()
+        env::var("CREDENTIALS_DIRECTORY").map(PathBuf::from).ok()
     }
 
     /// Get credential by ID.
@@ -54,7 +55,7 @@ impl CredentialsLoader {
     /// println!("token size: {}", token_metadata.len());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn get(&self, id: impl AsRef<str>) -> Result<File, SdError> {
+    pub fn get<I: AsRef<str>>(&self, id: I) -> Result<File, SdError> {
         let cred_path = self.cred_absolute_path(id.as_ref())?;
         File::open(&cred_path).map_err(|e| {
             let msg = format!("Opening credential at {}: {}", cred_path.display(), e);
@@ -85,8 +86,8 @@ impl CredentialsLoader {
     ///   println!("Credential ID: {}", credential.file_name().to_string_lossy());
     /// }
     /// # Ok::<(), Box<dyn std::error::Error>>(())
-    pub fn iter(&self) -> Result<std::fs::ReadDir, SdError> {
-        std::fs::read_dir(&self.path)
+    pub fn iter(&self) -> Result<ReadDir, SdError> {
+        read_dir(&self.path)
             .with_context(|| format!("Opening credential directory at {}", self.path.display()))
     }
 }
