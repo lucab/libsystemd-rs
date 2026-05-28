@@ -89,7 +89,7 @@ pub fn notify_with_fds(
         env::remove_var("NOTIFY_SOCKET");
     };
 
-    sanity_check_state_entries(state)?;
+    sanity_check_state_entries(state, fds)?;
 
     // If the first character of `$NOTIFY_SOCKET` is '@', the string
     // is understood as Linux abstract namespace socket.
@@ -138,6 +138,10 @@ pub enum NotifyState {
     Buserror(String),
     /// errno-style error code.
     Errno(u8),
+    /// The exit status of a service or the manager itself.
+    ExitStatus(u32),
+    /// Tells the service manager to extend the startup, runtime or shutdown service timeout.
+    ExtendTimeoutUsec(u64),
     /// A name for the submitted file descriptors.
     Fdname(String),
     /// Stores additional file descriptors in the service manager. Use [`notify_with_fds`] with this.
@@ -150,18 +154,35 @@ pub enum NotifyState {
     FdpollDisable,
     /// The main process ID of the service, in case of forking applications.
     Mainpid(unistd::Pid),
+    /// Reference the new main process by pidfd, passed as a single FD via [`notify_with_fds`].
+    /// Must be the sole notification entry and accompanied by exactly one file descriptor.
+    Mainpidfd,
+    /// Reference the new main process by pidfd inode number, to be used together with `Mainpid`.
+    Mainpidfdid(u64),
+    /// Monotonic timestamp in microseconds, typically used together with `Reloading`.
+    MonotonicUsec(u64),
+    /// Reset the access to the service status notification socket during runtime.
+    /// Accepted values: "none", "main", "exec", "all".
+    NotifyAccess(String),
     /// Custom state change, as a `KEY=VALUE` string.
     Other(String),
     /// Service startup is finished.
     Ready,
     /// Service is reloading.
     Reloading,
+    /// Reset the restart counter of the service.
+    RestartReset,
     /// Custom status change.
     Status(String),
     /// Service is beginning to shutdown.
     Stopping,
+    /// Varlink error-style error code.
+    Varlinkerror(String),
     /// Tell the service manager to update the watchdog timestamp.
     Watchdog,
+    /// Tell the service manager that the service detected an internal error
+    /// that should be handled by the configured watchdog options.
+    WatchdogTrigger,
     /// Reset watchdog timeout value during runtime.
     WatchdogUsec(u64),
 }
@@ -171,33 +192,66 @@ impl fmt::Display for NotifyState {
         match *self {
             NotifyState::Buserror(ref s) => write!(f, "BUSERROR={s}"),
             NotifyState::Errno(e) => write!(f, "ERRNO={e}"),
+            NotifyState::ExitStatus(e) => write!(f, "EXIT_STATUS={e}"),
+            NotifyState::ExtendTimeoutUsec(u) => write!(f, "EXTEND_TIMEOUT_USEC={u}"),
             NotifyState::Fdname(ref s) => write!(f, "FDNAME={s}"),
             NotifyState::Fdstore => write!(f, "FDSTORE=1"),
             NotifyState::FdstoreRemove => write!(f, "FDSTOREREMOVE=1"),
             NotifyState::FdpollDisable => write!(f, "FDPOLL=0"),
             NotifyState::Mainpid(ref p) => write!(f, "MAINPID={p}"),
+            NotifyState::Mainpidfd => write!(f, "MAINPIDFD=1"),
+            NotifyState::Mainpidfdid(id) => write!(f, "MAINPIDFDID={id}"),
+            NotifyState::MonotonicUsec(u) => write!(f, "MONOTONIC_USEC={u}"),
+            NotifyState::NotifyAccess(ref s) => write!(f, "NOTIFYACCESS={s}"),
             NotifyState::Other(ref s) => write!(f, "{s}"),
             NotifyState::Ready => write!(f, "READY=1"),
             NotifyState::Reloading => write!(f, "RELOADING=1"),
+            NotifyState::RestartReset => write!(f, "RESTART_RESET=1"),
             NotifyState::Status(ref s) => write!(f, "STATUS={s}"),
             NotifyState::Stopping => write!(f, "STOPPING=1"),
+            NotifyState::Varlinkerror(ref s) => write!(f, "VARLINKERROR={s}"),
             NotifyState::Watchdog => write!(f, "WATCHDOG=1"),
+            NotifyState::WatchdogTrigger => write!(f, "WATCHDOG=trigger"),
             NotifyState::WatchdogUsec(u) => write!(f, "WATCHDOG_USEC={u}"),
         }
     }
 }
 
 /// Perform some basic sanity checks against state entries.
-fn sanity_check_state_entries(state: &[NotifyState]) -> Result<(), SdError> {
+fn sanity_check_state_entries(state: &[NotifyState], fds: &[RawFd]) -> Result<(), SdError> {
+    let mut has_mainpidfd = false;
     for (index, entry) in state.iter().enumerate() {
+        if matches!(entry, NotifyState::Mainpidfd) {
+            has_mainpidfd = true;
+        }
         match entry {
             NotifyState::Fdname(ref name) => validate_fdname(name),
+            NotifyState::NotifyAccess(ref val) => validate_notifyaccess(val),
             _ => Ok(()),
         }
         .with_context(|| format!("invalid notify state entry #{index}"))?;
     }
 
+    if has_mainpidfd {
+        if state.len() != 1 {
+            return Err("MAINPIDFD=1 must be the sole notification entry".into());
+        }
+        if fds.len() != 1 {
+            return Err("MAINPIDFD=1 must be accompanied by exactly one file descriptor".into());
+        }
+    }
+
     Ok(())
+}
+
+fn validate_notifyaccess(val: &str) -> Result<(), SdError> {
+    match val {
+        "none" | "main" | "exec" | "all" => Ok(()),
+        _ => Err(format!(
+            "invalid NOTIFYACCESS value '{val}', expected one of: none, main, exec, all"
+        )
+        .into()),
+    }
 }
 
 /// Validate an `FDNAME` according to systemd rules.
