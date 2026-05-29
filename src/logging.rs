@@ -400,9 +400,14 @@ impl From<FileStat> for JournalStream {
 ///
 /// [1]: https://systemd.io/JOURNAL_NATIVE_PROTOCOL/#automatic-protocol-upgrading
 pub fn connected_to_journal() -> bool {
-    JournalStream::from_env().map_or(false, |env_stream| {
-        JournalStream::from_fd(std::io::stderr()).map_or(false, |o| o == env_stream)
-    })
+    let Ok(stream) = JournalStream::from_env() else {
+        return false;
+    };
+    let Ok(stderr_fd) = JournalStream::from_fd(std::io::stderr()) else {
+        return false;
+    };
+
+    stderr_fd == stream
 }
 
 #[cfg(test)]
