@@ -4,21 +4,16 @@ use std::collections::HashMap;
 use std::env::VarError;
 use std::process::Command;
 
+use libsystemd::logging::*;
 use pretty_assertions::assert_eq;
 use rand::distr::Alphanumeric;
-use rand::Rng;
-
-use libsystemd::logging::*;
+use rand::distr::SampleString;
 
 fn random_target(prefix: &str) -> String {
     format!(
         "{}_{}",
         prefix,
-        rand::rng()
-            .sample_iter(&Alphanumeric)
-            .take(10)
-            .map(char::from)
-            .collect::<String>()
+        Alphanumeric.sample_string(&mut rand::rng(), 10)
     )
 }
 

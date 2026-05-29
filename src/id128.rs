@@ -1,4 +1,5 @@
 use crate::errors::{Context, SdError};
+use hmac::KeyInit as _;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use std::hash::Hash;
