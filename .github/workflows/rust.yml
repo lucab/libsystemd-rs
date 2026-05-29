@@ -1,6 +1,12 @@
 ---
 name: Rust
-on: [push, pull_request]
+"on":
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,8 +18,12 @@ jobs:
     name: "Tests, stable toolchain"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: stable
       - run: cargo build
       - run: cargo test
       - run: cargo build --release
@@ -21,10 +31,12 @@ jobs:
     name: "Tests, minimum supported toolchain (MSRV)"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - name: Extract MSRV
         run: echo "ACTION_MSRV_TOOLCHAIN=$(grep 'rust-version' Cargo.toml | cut -d '"' -f2)" >> $GITHUB_ENV
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: ${{ env['ACTION_MSRV_TOOLCHAIN']  }}
       - run: cargo build --release
@@ -33,8 +45,10 @@ jobs:
     name: "Lints, pinned toolchain"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: ${{ env['ACTION_LINTS_TOOLCHAIN']  }}
           components: rustfmt,clippy
@@ -50,8 +64,10 @@ jobs:
           - "beta"
           - "nightly"
     steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: ${{ matrix.channel }}
       - run: cargo build
