@@ -5,7 +5,7 @@ use nix::sys::socket::{AddressFamily, SockaddrLike, SockaddrStorage};
 use nix::sys::stat::fstat;
 use std::convert::TryFrom;
 use std::env;
-use std::os::unix::io::{IntoRawFd, RawFd};
+use std::os::unix::io::{FromRawFd, IntoRawFd, OwnedFd, RawFd};
 use std::process;
 
 /// Minimum FD number used by systemd for passing sockets.
@@ -268,6 +268,14 @@ impl IntoRawFd for FileDescriptor {
             SocketFd::Mq(fd) => fd,
             SocketFd::Unknown(fd) => fd,
         }
+    }
+}
+
+impl From<FileDescriptor> for OwnedFd {
+    fn from(fd: FileDescriptor) -> Self {
+        // SAFETY: FileDescriptor owns its fd, and IntoRawFd consumes it,
+        // so we have exclusive ownership of the raw fd at this point.
+        unsafe { OwnedFd::from_raw_fd(fd.into_raw_fd()) }
     }
 }
 
