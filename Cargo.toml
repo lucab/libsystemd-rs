@@ -20,7 +20,7 @@ rust-version = "1.85"
 hmac = "0.13"
 libc = "^0.2"
 log = "^0.4"
-nix = { version = "^0.29", default-features = false, features = ["dir", "fs", "socket", "process", "uio"] }
+nix = { version = "^0.31", default-features = false, features = ["dir", "fs", "socket", "process", "uio"] }
 nom = "8"
 once_cell = "^1.8"
 serde = { version = "^1.0.91", features = ["derive"] }
